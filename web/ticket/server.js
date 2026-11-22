@@ -1161,6 +1161,76 @@ function computeRailwayFare(db, distance) {
   return Math.max(min, Math.min(max, raw));
 }
 
+/**
+ * 单段票价：优先用后台票价表里填的该段价格；没有记录时按两站中心点距离即时计算。
+ * 后台“手动改价”的段价会原样生效，保证网页上填多少、游戏里就收多少。
+ */
+function railwaySegmentFare(db, fromStationId, toStationId) {
+  const fare = railwayFindFare(db, fromStationId, toStationId);
+  if (fare && (fare.custom || Number(fare.price) > 0)) {
+    return Math.max(0, Number(fare.price));
+  }
+  const from = findStation(db, fromStationId);
+  const to = findStation(db, toStationId);
+  const distance = railwayDistance(from, to);
+  if (distance > 0) return computeRailwayFare(db, distance);
+  if (fare) return Math.max(0, Number(fare.price) || Number(fare.autoPrice) || 0);
+  return Math.max(0, Number((db.settings || {}).minFare || 1));
+}
+
+/** 直达两站票价（不经过中间站时使用）。 */
+function railwayQuoteFare(db, fromStationId, toStationId) {
+  return railwaySegmentFare(db, fromStationId, toStationId);
+}
+
+/**
+ * 沿车次经停顺序累加分段票价：A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价。
+ * 这是网页、POS、游戏内支付的统一成交价。
+ */
+function railwayRouteFare(db, train, fromStationId, toStationId) {
+  const stops = trainStops(db, train);
+  let fromIndex = stops.findIndex((s) => s.stationId === fromStationId);
+  let toIndex = stops.findIndex((s) => s.stationId === toStationId);
+  // 列车反向运行时，按停站表倒序累加。
+  if (fromIndex >= 0 && toIndex >= 0 && toIndex < fromIndex) {
+    const reversed = stops.slice().reverse();
+    fromIndex = reversed.findIndex((s) => s.stationId === fromStationId);
+    toIndex = reversed.findIndex((s) => s.stationId === toStationId);
+    return railwayRouteFareByStops(db, reversed, fromIndex, toIndex);
+  }
+  return railwayRouteFareByStops(db, stops, fromIndex, toIndex);
+}
+
+function railwayRouteFareByStops(db, stops, fromIndex, toIndex) {
+  if (fromIndex < 0 || toIndex < 0 || toIndex <= fromIndex) {
+    return fromIndex >= 0 && toIndex >= 0
+      ? railwaySegmentFare(db, stops[fromIndex].stationId, stops[toIndex].stationId)
+      : 0;
+  }
+  let total = 0;
+  for (let i = fromIndex; i < toIndex; i += 1) {
+    total += railwaySegmentFare(db, stops[i].stationId, stops[i + 1].stationId);
+  }
+  return Math.round(total * 100) / 100;
+}
+
+/** 按当前每格系数重算所有“未手动改价”的票价；手动票价保留。 */
+function railwayRecalcAutoFares(db) {
+  let count = 0;
+  (db.fares || []).forEach((fare) => {
+    const from = findStation(db, fare.fromStationId);
+    const to = findStation(db, fare.toStationId);
+    const distance = railwayDistance(from, to);
+    if (!(distance > 0)) return;
+    fare.distance = distance;
+    fare.autoPrice = computeRailwayFare(db, distance);
+    if (!fare.custom) fare.price = fare.autoPrice;
+    fare.updatedAt = new Date().toISOString();
+    count += 1;
+  });
+  return count;
+}
+
 function railwayAutoFares(db, changedStation) {
   if (!railwayHasCenter(changedStation)) return;
   (db.stations || []).forEach((other) => {
@@ -1770,7 +1840,6 @@ async function route(req, res, pathname, query) {
           if (index < 0) return;
           const destination = stops[stops.length - 1];
           if (!destination || destination.stationId === station.id) return;
-          const fare = railwayFindFare(db, station.id, destination.stationId);
           const view = trainView(db, train, today);
           const check = railwayCheckinState(db, train, today, station.name);
           trains.push({
@@ -1781,7 +1850,7 @@ async function route(req, res, pathname, query) {
             toStationName: destination.name,
             departTime: check.departTime || train.departTime,
             arriveTime: train.arriveTime,
-            price: Number(fare ? fare.price : view.lowestPrice || 0),
+            price: railwayRouteFare(db, train, station.id, destination.stationId),
             currency: brand.currency,
             remaining: Number(view.totalRemaining || 0),
             checkinOpen: check.open,
@@ -1819,10 +1888,9 @@ async function route(req, res, pathname, query) {
         railwayStationByName(db, body.toStationName) ||
         stops[stops.length - 1];
       if (!destination || destination.stationId === station.id) return fail(res, 400, '到达车站无效');
-      const fare = railwayFindFare(db, station.id, destination.stationId);
       const seat = (train.seats || [])[0] || {};
-      const view = trainView(db, train, todayStr());
-      const price = Math.max(0, Number(body.price) || Number(fare ? fare.price : view.lowestPrice) || Number(seat.price) || 0);
+      // 成交价按经停顺序累加分段票价，不信任前端传入的 price。
+      const price = railwayRouteFare(db, train, station.id, destination.stationId);
       const passengerName = String(body.passengerName || body.name || '').trim().slice(0, 20);
       const idNo = String(body.idNo || '').trim().slice(0, 32);
       if (!passengerName) return fail(res, 400, '乘车人姓名不能为空');
@@ -2122,18 +2190,7 @@ async function route(req, res, pathname, query) {
           );
         }
         if (method === 'POST' && fourth === 'recalculate') {
-          let count = 0;
-          (db.fares || []).forEach((fare) => {
-            const from = findStation(db, fare.fromStationId);
-            const to = findStation(db, fare.toStationId);
-            const distance = railwayDistance(from, to);
-            if (!(distance > 0)) return;
-            fare.distance = distance;
-            fare.autoPrice = computeRailwayFare(db, distance);
-            if (!fare.custom) fare.price = fare.autoPrice;
-            fare.updatedAt = new Date().toISOString();
-            count += 1;
-          });
+          const count = railwayRecalcAutoFares(db);
           saveDB();
           return ok(res, { recalculated: count }, `已重算 ${count} 条票价`);
         }
@@ -2145,8 +2202,10 @@ async function route(req, res, pathname, query) {
           if (from.id === to.id) return fail(res, 400, '起点站与终点站不能相同');
           const key = railwayFareKey(from.id, to.id);
           let fare = (db.fares || []).find((f) => f.key === key);
-          const distance = railwayDistance(from, to);
-          const autoPrice = computeRailwayFare(db, distance || Number(body.distance) || 0);
+          const geoDistance = railwayDistance(from, to);
+          const requestedDistance = Number(body.distance);
+          const distance = Number.isFinite(requestedDistance) && requestedDistance > 0 ? requestedDistance : geoDistance;
+          const autoPrice = computeRailwayFare(db, distance);
           if (!fare) {
             fare = {
               id: newId('f'),
@@ -2161,13 +2220,17 @@ async function route(req, res, pathname, query) {
               updatedAt: new Date().toISOString(),
             };
             db.fares.push(fare);
+          } else {
+            fare.distance = distance;
+            fare.autoPrice = autoPrice;
           }
           if (body.price !== undefined) {
             const price = Math.max(0, Math.min(999, Number(body.price) || 0));
             fare.price = price;
             fare.custom = price !== fare.autoPrice;
+          } else if (!fare.custom) {
+            fare.price = autoPrice;
           }
-          if (body.distance !== undefined) fare.distance = Math.max(0, Number(body.distance) || 0);
           fare.updatedAt = new Date().toISOString();
           saveDB();
           return ok(res, fare, '票价已保存');
@@ -2176,12 +2239,17 @@ async function route(req, res, pathname, query) {
           const fare = (db.fares || []).find((f) => f.id === fourth);
           if (!fare) return fail(res, 404, '票价记录不存在');
           const body = await readBody(req);
+          let distanceChanged = false;
+          if (body.distance !== undefined) {
+            fare.distance = Math.max(0, Number(body.distance) || 0);
+            fare.autoPrice = computeRailwayFare(db, fare.distance);
+            distanceChanged = true;
+          }
           if (body.price !== undefined) {
             fare.price = Math.max(0, Math.min(999, Number(body.price) || 0));
             fare.custom = Number(fare.price) !== Number(fare.autoPrice);
           }
-          if (body.distance !== undefined) fare.distance = Math.max(0, Number(body.distance) || 0);
-          if (body.resetAuto) {
+          if (body.resetAuto || (distanceChanged && !fare.custom)) {
             fare.custom = false;
             fare.price = fare.autoPrice;
           }
@@ -2293,8 +2361,9 @@ async function route(req, res, pathname, query) {
           if (body.checkinMinutes !== undefined) s.checkinMinutes = Math.max(1, Math.min(180, Number(body.checkinMinutes) || 30));
           if (body.railwayAdminToken !== undefined) s.railwayAdminToken = String(body.railwayAdminToken).trim().slice(0, 80);
           db.settings = s;
+          railwayRecalcAutoFares(db);
           saveDB();
-          return ok(res, s, '铁路设置已保存');
+          return ok(res, s, '铁路设置已保存，自动票价已按新系数重算');
         }
       }
       return fail(res, 404, '铁路管理接口不存在');
@@ -2998,8 +3067,9 @@ async function route(req, res, pathname, query) {
         next.ticketQrRefreshSeconds = v;
       }
       db.settings = next;
+      railwayRecalcAutoFares(db);
       saveDB();
-      return ok(res, next, '设置已保存');
+      return ok(res, next, '设置已保存，自动票价已按新系数重算');
     }
     return fail(res, 405, '不支持的请求方法');
   }

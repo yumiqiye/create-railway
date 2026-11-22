@@ -31,7 +31,8 @@ cd "E:\新建文件夹\railway\railway-addon"
 - Gradle 插件：阿里云 `gradle-plugin`
 - 后台 npm：`web/admin/.npmrc` 已指向 `registry.npmmirror.com`
 
-产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.1.jar`。  
+产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.2.jar`。  
+每次执行 `build` 会自动把补丁号 +1（写入 `gradle.properties`），需要临时关闭时加 `-PnoVersionBump`。
 放进 `mods`，与 `CRH-HeXie-*.jar` 同目录即可。客户端想用内嵌网页，再放 MCEF（NeoForge 1.21.1，2.1.x）。
 
 ### 2. 启动网页端
@@ -194,7 +195,7 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
   2. 扫描范围内注册名为 `hexie:ticket_vendor` / `hexie:turns_a_block` / `hexie:turns_b_block` 的方块；
   3. 计算中心点；
   4. POST `/api/railway/admin/station` 同步后台；
-  5. 后台按“本站中心 ↔ 其他车站中心”的方块距离自动生成票价。
+  5. 后台按相邻停靠站自动生成每一段票价；售票时按车次经停顺序累加，A→C 经由 B 时票价 = A-B 段价 + B-C 段价。
 
 其他：
 

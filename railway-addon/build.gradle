@@ -3,7 +3,24 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
 }
 
-version = mod_version
+// 每次执行 build 自动把补丁号 +1：本次构建使用递增后的版本，产物与 gradle.properties 一致。
+// 需要临时关闭时加 -PnoVersionBump。
+def autoVersionBump = gradle.startParameter.taskNames.any { it == 'build' || it.endsWith(':build') }
+        && !project.hasProperty('noVersionBump')
+def effectiveVersion = mod_version
+if (autoVersionBump) {
+    def matcher = mod_version =~ /^(\d+)\.(\d+)\.(\d+)(.*)$/
+    if (matcher.matches()) {
+        def nextVersion = "${matcher.group(1)}.${matcher.group(2)}.${matcher.group(3).toInteger() + 1}"
+        def propsFile = file('gradle.properties')
+        def propsText = propsFile.getText('UTF-8')
+        propsFile.setText(propsText.replaceAll(/(?m)^mod_version=.*$/, "mod_version=${nextVersion}"), 'UTF-8')
+        effectiveVersion = nextVersion
+        logger.lifecycle("Auto version bump: ${mod_version} -> ${nextVersion}")
+    }
+}
+
+version = effectiveVersion
 group = mod_group_id
 base.archivesName = "HexieRailwayAddon-${minecraft_version}"
 
@@ -42,7 +59,7 @@ neoForge {
 }
 
 tasks.named('processResources', ProcessResources).configure {
-    var properties = [mod_version: mod_version, mod_name: mod_name,
+    var properties = [mod_version: effectiveVersion, mod_name: mod_name,
                       minecraft_version: minecraft_version, neo_version: neo_version]
     inputs.properties properties
     filesMatching('META-INF/neoforge.mods.toml') { expand properties }

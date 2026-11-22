@@ -5,8 +5,8 @@
   <div>
     <div class="n-layout-page-header">
       <n-card :bordered="false" title="票价管理">
-        车站通过 <code>/railway admin station &lt;站名&gt; POS1/POS2</code> 划定范围后，系统按两站中心点的方块距离自动生成票价。
-        这里的修改只影响网页售票机与游戏内票价，货币在系统设置中配置。
+        车站通过 <code>/railway admin station &lt;站名&gt; POS1/POS2</code> 划定范围后，系统按相邻停靠站的方块距离生成每一段票价。
+        售票时按车次经停顺序累加，例如 A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价；这里填的分段票价就是游戏内实际收取的金额。
       </n-card>
     </div>
 
@@ -57,7 +57,7 @@
           <n-input-number v-model:value="form.price" :min="0" :max="999" :precision="0" style="width: 100%" />
         </n-form-item>
         <n-alert type="info" :bordered="false">
-          票价 = 距离 × 每格系数（系统设置中可调），并受最低/最高票价限制。手动改价后标记为“手动”，不再随距离自动变化。
+          默认按两站中心点距离自动生成这一段票价；手动改价后标记为“手动”，该段固定使用手动价。售票时按停站顺序累加各段，网页、POS 与游戏内支付一致。
         </n-alert>
       </n-form>
       <template #footer>
