@@ -61,7 +61,9 @@ public final class GuideScreenRenderer {
 
     @SubscribeEvent
     public static void onRenderLevel(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) return;
+        // 在实体和半透明方块之前绘制：屏体会正常写入深度，后面的实体/水面能遮挡它，
+        // 不再像 AFTER_TRANSLUCENT_BLOCKS 那样盖在所有东西上造成“置顶穿模”。
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_CUTOUT_BLOCKS) return;
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
         if (level == null) {
@@ -80,9 +82,12 @@ public final class GuideScreenRenderer {
         poseStack.pushPose();
         poseStack.translate(-camera.x, -camera.y, -camera.z);
 
+        RenderSystem.enableDepthTest();
+        RenderSystem.depthMask(true);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-        RenderSystem.disableCull();
+        // 只画朝外的一面；从屏幕背后看时被柜体挡住，避免穿到方块另一侧。
+        RenderSystem.enableCull();
         RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
