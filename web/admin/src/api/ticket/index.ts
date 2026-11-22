@@ -377,15 +377,11 @@ export interface RailwayFare {
   autoPrice: number;
   price: number;
   currency: string;
-  custom: boolean;
   updatedAt?: string;
 }
 export const getRailwayFares = () => Alova.Get<RailwayFare[]>('/ticket/railway/admin/fares');
-export const saveRailwayFare = (data: { fromStationId: string; toStationId: string; price?: number; distance?: number }) =>
+export const saveRailwayFare = (data: { fromStationId: string; toStationId: string }) =>
   Alova.Post<RailwayFare>('/ticket/railway/admin/fares', data);
-export const updateRailwayFare = (id: string, data: { price?: number; distance?: number; resetAuto?: boolean }) =>
-  Alova.Put<RailwayFare>(`/ticket/railway/admin/fares/${id}`, data);
-export const deleteRailwayFare = (id: string) => Alova.Delete<null>(`/ticket/railway/admin/fares/${id}`);
 export const recalcRailwayFares = () => Alova.Post<{ recalculated: number }>('/ticket/railway/admin/fares/recalculate', {});
 
 export interface RailwayBureau {

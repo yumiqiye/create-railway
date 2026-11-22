@@ -1192,8 +1192,8 @@ function computeRailwayFare(db, distance) {
 }
 
 /**
- * 单段票价：坐标优先。两站都有中心点时一律按方块距离计算；
- * 只有缺少坐标时才回退到后台手填价，保证“价格优先按照坐标”。
+ * 单段票价：只按坐标计算。两站都有中心点时一律按方块距离计价；
+ * 缺坐标时使用已有自动票价缓存，不读取任何手填价。
  */
 function railwaySegmentFare(db, fromStationId, toStationId) {
   const from = findStation(db, fromStationId);
@@ -1202,8 +1202,9 @@ function railwaySegmentFare(db, fromStationId, toStationId) {
   if (distance > 0) return computeRailwayFare(db, distance);
   const fare = railwayFindFare(db, fromStationId, toStationId);
   if (fare) {
-    const manual = Number(fare.custom ? fare.price : fare.price || fare.autoPrice || 0);
-    if (manual > 0) return Math.max(0, manual);
+    // 只认坐标生成的缓存价；历史记录里的手填 price 不再参与结算。
+    const cached = Number(fare.autoPrice || 0);
+    if (cached > 0) return cached;
   }
   return Math.max(0, Number((db.settings || {}).minFare || 1));
 }
@@ -1223,7 +1224,7 @@ function railwaySeatMultiplier(seatType) {
 
 /**
  * 沿车次经停顺序累加分段票价：A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价。
- * 坐标齐全时全部按坐标计算；只要有一段缺坐标，就用该席别的手填全程价按段数比例回退，
+ * 坐标齐全时全部按坐标计算；只要有一段缺坐标，就用该车次的二等座基准价按段数比例回退，
  * 避免长途车缺失坐标时被最低价（1 绿宝石）贱卖。
  */
 function railwayRouteFare(db, train, fromStationId, toStationId, seatType) {
@@ -1283,7 +1284,7 @@ function railwayRouteQuoteByStops(db, stops, fromIndex, toIndex) {
   };
 }
 
-/** 按当前每格系数重算所有“未手动改价”的票价；手动票价保留。 */
+/** 按当前每格系数重算所有票价；票价只由车站坐标决定，不再保留手动价。 */
 function railwayRecalcAutoFares(db) {
   let count = 0;
   (db.fares || []).forEach((fare) => {
@@ -1293,7 +1294,8 @@ function railwayRecalcAutoFares(db) {
     if (!(distance > 0)) return;
     fare.distance = distance;
     fare.autoPrice = computeRailwayFare(db, distance);
-    if (!fare.custom) fare.price = fare.autoPrice;
+    fare.price = fare.autoPrice;
+    fare.currency = (db.settings || {}).railwayCurrency || fare.currency || 'emerald';
     fare.updatedAt = new Date().toISOString();
     count += 1;
   });
@@ -1320,14 +1322,14 @@ function railwayAutoFares(db, changedStation) {
         autoPrice,
         price: autoPrice,
         currency: (db.settings || {}).railwayCurrency || 'emerald',
-        custom: false,
         updatedAt: new Date().toISOString(),
       };
       db.fares.push(fare);
-    } else if (!fare.custom) {
+    } else {
       fare.distance = distance;
       fare.autoPrice = autoPrice;
       fare.price = autoPrice;
+      delete fare.custom;
       fare.updatedAt = new Date().toISOString();
     }
   });
@@ -2579,11 +2581,20 @@ async function route(req, res, pathname, query) {
           return ok(
             res,
             (db.fares || [])
-              .map((f) => ({
-                ...f,
-                fromStationName: (findStation(db, f.fromStationId) || {}).name || '-',
-                toStationName: (findStation(db, f.toStationId) || {}).name || '-',
-              }))
+              .map((f) => {
+                const from = findStation(db, f.fromStationId);
+                const to = findStation(db, f.toStationId);
+                const distance = railwayDistance(from, to);
+                const autoPrice = distance > 0 ? computeRailwayFare(db, distance) : Number(f.autoPrice || f.price || 0);
+                return {
+                  ...f,
+                  fromStationName: (from || {}).name || '-',
+                  toStationName: (to || {}).name || '-',
+                  distance: distance > 0 ? distance : Number(f.distance || 0),
+                  autoPrice,
+                  price: autoPrice,
+                };
+              })
               .sort((a, b) => a.fromStationName.localeCompare(b.fromStationName))
           );
         }
@@ -2594,15 +2605,19 @@ async function route(req, res, pathname, query) {
         }
         if (method === 'POST' && !fourth) {
           const body = await readBody(req);
+          if (body.price !== undefined || body.distance !== undefined) {
+            return fail(res, 400, '手填票价功能已停用，票价只按车站坐标自动计算');
+          }
           const from = findStation(db, String(body.fromStationId || ''));
           const to = findStation(db, String(body.toStationId || ''));
           if (!from || !to) return fail(res, 400, '请选择有效的起点站和终点站');
           if (from.id === to.id) return fail(res, 400, '起点站与终点站不能相同');
+          if (!railwayHasCenter(from) || !railwayHasCenter(to)) {
+            return fail(res, 400, '两站都需要设置中心点坐标，系统不能手填票价');
+          }
           const key = railwayFareKey(from.id, to.id);
           let fare = (db.fares || []).find((f) => f.key === key);
-          const geoDistance = railwayDistance(from, to);
-          const requestedDistance = Number(body.distance);
-          const distance = Number.isFinite(requestedDistance) && requestedDistance > 0 ? requestedDistance : geoDistance;
+          const distance = railwayDistance(from, to);
           const autoPrice = computeRailwayFare(db, distance);
           if (!fare) {
             fare = {
@@ -2614,46 +2629,21 @@ async function route(req, res, pathname, query) {
               autoPrice,
               price: autoPrice,
               currency: (db.settings || {}).railwayCurrency || 'emerald',
-              custom: false,
               updatedAt: new Date().toISOString(),
             };
             db.fares.push(fare);
           } else {
             fare.distance = distance;
             fare.autoPrice = autoPrice;
-          }
-          if (body.price !== undefined) {
-            const price = Math.max(0, Math.min(999, Number(body.price) || 0));
-            fare.price = price;
-            fare.custom = price !== fare.autoPrice;
-          } else if (!fare.custom) {
             fare.price = autoPrice;
+            delete fare.custom;
           }
           fare.updatedAt = new Date().toISOString();
           saveDB();
-          return ok(res, fare, '票价已保存');
+          return ok(res, fare, '已按坐标生成票价');
         }
         if (fourth && method === 'PUT') {
-          const fare = (db.fares || []).find((f) => f.id === fourth);
-          if (!fare) return fail(res, 404, '票价记录不存在');
-          const body = await readBody(req);
-          let distanceChanged = false;
-          if (body.distance !== undefined) {
-            fare.distance = Math.max(0, Number(body.distance) || 0);
-            fare.autoPrice = computeRailwayFare(db, fare.distance);
-            distanceChanged = true;
-          }
-          if (body.price !== undefined) {
-            fare.price = Math.max(0, Math.min(999, Number(body.price) || 0));
-            fare.custom = Number(fare.price) !== Number(fare.autoPrice);
-          }
-          if (body.resetAuto || (distanceChanged && !fare.custom)) {
-            fare.custom = false;
-            fare.price = fare.autoPrice;
-          }
-          fare.updatedAt = new Date().toISOString();
-          saveDB();
-          return ok(res, fare, '票价已更新');
+          return fail(res, 400, '手填票价功能已停用，请使用“按坐标重算”');
         }
         if (fourth && method === 'DELETE') {
           db.fares = (db.fares || []).filter((f) => f.id !== fourth);
