@@ -70,11 +70,15 @@ public final class RailwayCommands {
                 .then(Commands.literal("print")
                         .then(Commands.argument("orderNo", StringArgumentType.word())
                                 .suggests(ORDER_SUGGESTIONS)
-                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), false))))
+                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), false, false))))
+                .then(Commands.literal("reprint")
+                        .then(Commands.argument("orderNo", StringArgumentType.word())
+                                .suggests(ORDER_SUGGESTIONS)
+                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), false, true))))
                 .then(Commands.literal("voucher")
                         .then(Commands.argument("orderNo", StringArgumentType.word())
                                 .suggests(ORDER_SUGGESTIONS)
-                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), true))))
+                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), true, false))))
                 .then(Commands.literal("status").executes(RailwayCommands::status))
                 .then(Commands.literal("admin")
                         .requires(source -> source.hasPermission(2))
@@ -193,7 +197,7 @@ public final class RailwayCommands {
         }
     }
 
-    private static int print(CommandContext<CommandSourceStack> context, String orderNo, boolean voucher) {
+    private static int print(CommandContext<CommandSourceStack> context, String orderNo, boolean voucher, boolean reprint) {
         ServerPlayer player = context.getSource().getPlayer();
         if (player == null) return 0;
         try {
@@ -203,8 +207,9 @@ public final class RailwayCommands {
                 reply(player, "订单未支付，请先执行 /railway pay " + orderNo, ChatFormatting.RED);
                 return 0;
             }
-            if (!voucher && RailwayWeb.b(order, "printed", false)) {
-                reply(player, "该订单已打印过车票，不能重复打印", ChatFormatting.YELLOW);
+            boolean alreadyPrinted = RailwayWeb.b(order, "printed", false);
+            if (!voucher && alreadyPrinted && !reprint) {
+                reply(player, "该订单已打印过车票；补打请用网页售票机的“补打车票”或 /railway reprint " + orderNo, ChatFormatting.YELLOW);
                 return 0;
             }
             String orderId = RailwayWeb.str(order, "orderNo", orderNo);
@@ -222,11 +227,14 @@ public final class RailwayCommands {
 
             if (!voucher) {
                 mirrorCard(player, order, idNo);
-                RailwayWeb.blockingPost("/railway/orders/" + orderId + "/print", new JsonObject(), 3000);
+                String endpoint = reprint ? "/reprint" : "/print";
+                RailwayWeb.blockingPost("/railway/orders/" + orderId + endpoint, new JsonObject(), 3000);
             }
             String train = RailwayWeb.str(order, "trainName", RailwayWeb.str(order, "trainNo", ""));
             if (voucher) {
                 reply(player, "已打印 " + train + " 报销凭证并放入背包", ChatFormatting.GOLD);
+            } else if (alreadyPrinted || reprint) {
+                reply(player, "已补打 " + train + " 车票并放入背包；请妥善保管", ChatFormatting.GREEN);
             } else {
                 reply(player, "已打印 " + train + " 车票并放入背包；刷身份证可直接检票", ChatFormatting.GREEN);
             }

@@ -71,6 +71,7 @@
     <span style="font-size:14px;color:#7b8798">出发车站</span>
     <select id="stationSelect"></select>
     <button class="btn ghost" id="refreshBtn">刷新车次</button>
+    <button class="btn gold" id="reprintOpenBtn">补打车票 / 报销凭证</button>
     <span style="margin-left:auto;font-size:13px;color:#7b8798">在游戏内购票请直接在售票机刷身份证；本页仅供自助机/内嵌浏览器使用</span>
   </div>
   <div class="trains" id="trainList"><div class="empty">正在加载车次…</div></div>
@@ -108,6 +109,22 @@
   </div>
 </div>
 
+<!-- 补打车票 / 报销凭证 -->
+<div class="mask" id="reprintMask">
+  <div class="dialog">
+    <h2>补打车票 / 报销凭证</h2>
+    <div class="hint">输入已支付订单号查询；内嵌售票机会重新生成物品并放入玩家背包，普通网页会生成打印预览。</div>
+    <div class="field"><label>订单号</label><input id="reprintNo" maxlength="40" placeholder="请输入原订单号" /></div>
+    <div class="orderbox" id="reprintSummary">输入订单号后点击“查询订单”。</div>
+    <div class="actions">
+      <button class="btn ghost" data-close="reprintMask">关闭</button>
+      <button class="btn ghost" id="reprintQuery">查询订单</button>
+      <button class="btn gold" id="reprintVoucher" disabled>补打报销凭证</button>
+      <button class="btn" id="reprintTicket" disabled>补打车票</button>
+    </div>
+  </div>
+</div>
+
 <div class="ticket-print" id="ticketPrint">
   <div class="tp">
     <h3 id="tpTitle">清江铁路 · 火车票</h3>
@@ -124,7 +141,7 @@
 
 <script>
 (function () {
-  var state = { station: '', trains: [], order: null, pollTimer: 0, ticket: null };
+  var state = { station: '', trains: [], order: null, pollTimer: 0, ticket: null, reprintOrder: null };
   var presetName = qs('name');
   var presetIdNo = qs('idNo');
   var embedded = qs('embed') === '1';
@@ -266,7 +283,7 @@
     $('payCmd').style.display = order.status === 'paid' ? 'none' : 'block';
     $('copyCmd').style.display = order.status === 'paid' ? 'none' : 'inline-block';
     $('printBtn').disabled = order.status !== 'paid';
-    $('voucherBtn').disabled = !(embedded && order.status === 'paid');
+    $('voucherBtn').disabled = order.status !== 'paid';
     if (embedded) $('voucherBtn').textContent = '打印报销凭证';
     pollOrder();
   }
@@ -286,8 +303,9 @@
   }
 
   function sendEmbeddedAction(action, orderNo) {
-    location.hash = action + '=' + encodeURIComponent(orderNo);
-    toast('已发送游戏内指令：/railway ' + action + ' ' + orderNo);
+    // 加时间戳，保证连续补打同一个订单也会触发游戏内轮询。
+    location.hash = action + '=' + encodeURIComponent(orderNo) + '&' + Date.now();
+    toast('已发送游戏内指令：/railway ' + (action === 'reprint' ? 'reprint' : action) + ' ' + orderNo);
   }
 
   function copyCommand() {
@@ -304,14 +322,9 @@
     }
   }
 
-  function printTicket() {
-    var order = state.order;
-    if (!order || order.status !== 'paid') return;
-    if (embedded) {
-      sendEmbeddedAction('print', order.orderNo);
-      return;
-    }
-    $('tpTitle').textContent = (($('systemName').textContent || '清江铁路') + ' · 火车票');
+  function fillPrint(order, kind) {
+    var voucher = kind === 'voucher';
+    $('tpTitle').textContent = (($('systemName').textContent || '清江铁路') + (voucher ? ' · 报销凭证' : ' · 火车票'));
     $('tpOrder').textContent = order.orderNo;
     $('tpTrain').textContent = order.trainNo;
     $('tpRoute').textContent = order.fromStationName + ' → ' + order.toStationName;
@@ -319,8 +332,67 @@
     $('tpPrice').textContent = order.price + ' 绿宝石';
     $('tpName').textContent = order.passengerName || '';
     $('tpId').textContent = (order.idNo || '').replace(/^(.{4}).*(.{4})$/, '$1**********$2');
-    toast('请在游戏内执行 /railway print ' + order.orderNo + ' 领取带订单号 NBT 的车票；此处将打印纸质预览。');
+    toast(voucher ? '正在生成报销凭证打印预览。' : '正在生成车票打印预览。');
     window.print();
+  }
+
+  function printTicket() {
+    var order = state.order;
+    if (!order || order.status !== 'paid') return;
+    if (embedded) {
+      sendEmbeddedAction('print', order.orderNo);
+      return;
+    }
+    fillPrint(order, 'ticket');
+  }
+
+  function openReprint() {
+    state.reprintOrder = null;
+    $('reprintNo').value = state.order && state.order.orderNo ? state.order.orderNo : '';
+    $('reprintSummary').textContent = '输入订单号后点击“查询订单”。';
+    $('reprintTicket').disabled = true;
+    $('reprintVoucher').disabled = true;
+    $('reprintMask').classList.add('show');
+    $('reprintNo').focus();
+  }
+
+  function queryReprintOrder() {
+    var orderNo = $('reprintNo').value.trim();
+    if (!orderNo) return toast('请先输入订单号');
+    $('reprintQuery').disabled = true;
+    api('/railway/orders/' + encodeURIComponent(orderNo)).then(function (order) {
+      state.reprintOrder = order;
+      var paid = order && order.status === 'paid';
+      $('reprintSummary').innerHTML =
+        '<div>订单号：<b>' + esc(order.orderNo) + '</b></div>' +
+        '<div>车次：' + esc(order.trainNo) + '　' + esc(order.fromStationName) + ' → ' + esc(order.toStationName) + '</div>' +
+        '<div>日期：' + esc(order.date) + '　开车：' + esc(order.departTime) + '</div>' +
+        '<div>乘车人：' + esc(order.passengerName) + '　票价：<b style="color:#1c8a4b">' + esc(order.price) + ' 绿宝石</b></div>' +
+        '<div>打印状态：' + (order.printed ? '已打印过' + (order.printCount ? '（' + esc(order.printCount) + ' 次）' : '') : '未打印') +
+        '　状态：' + (paid ? '已支付' : '未支付') + '</div>';
+      $('reprintTicket').disabled = !paid;
+      $('reprintVoucher').disabled = !paid;
+      if (!paid) toast('该订单未支付，不能补打');
+    }).catch(function (err) {
+      state.reprintOrder = null;
+      $('reprintSummary').textContent = err.message || '订单查询失败';
+      $('reprintTicket').disabled = true;
+      $('reprintVoucher').disabled = true;
+    }).finally(function () {
+      $('reprintQuery').disabled = false;
+    });
+  }
+
+  function reprint(kind) {
+    var order = state.reprintOrder;
+    if (!order || order.status !== 'paid') return toast('请先查询一笔已支付订单');
+    if (embedded) {
+      sendEmbeddedAction(kind === 'voucher' ? 'voucher' : 'reprint', order.orderNo);
+      $('reprintMask').classList.remove('show');
+      return;
+    }
+    $('reprintMask').classList.remove('show');
+    fillPrint(order, kind);
   }
 
   $('refreshBtn').addEventListener('click', loadTrains);
@@ -337,7 +409,18 @@
       sendEmbeddedAction('voucher', state.order.orderNo);
       return;
     }
-    toast('报销凭证需要在售票机内嵌页面打印；普通网页暂不提供。');
+    if (state.order && state.order.status === 'paid') {
+      fillPrint(state.order, 'voucher');
+      return;
+    }
+    toast('请先生成并支付订单');
+  });
+  $('reprintOpenBtn').addEventListener('click', openReprint);
+  $('reprintQuery').addEventListener('click', queryReprintOrder);
+  $('reprintTicket').addEventListener('click', function () { reprint('ticket'); });
+  $('reprintVoucher').addEventListener('click', function () { reprint('voucher'); });
+  $('reprintNo').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') queryReprintOrder();
   });
   Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function (btn) {
     btn.addEventListener('click', function () {

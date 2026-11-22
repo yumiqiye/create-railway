@@ -31,7 +31,7 @@ cd "E:\新建文件夹\railway\railway-addon"
 - Gradle 插件：阿里云 `gradle-plugin`
 - 后台 npm：`web/admin/.npmrc` 已指向 `registry.npmmirror.com`
 
-产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.2.jar`。  
+产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.3.jar`。  
 每次执行 `build` 会自动把补丁号 +1（写入 `gradle.properties`），需要临时关闭时加 `-PnoVersionBump`。
 放进 `mods`，与 `CRH-HeXie-*.jar` 同目录即可。客户端想用内嵌网页，再放 MCEF（NeoForge 1.21.1，2.1.x）。
 
@@ -137,6 +137,7 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
 - **内部售票机订单自动支付**，下单后直接是 `paid`，不再要求 `/railway pay`；
 - 点“打印车票” → `#print=订单号` → 附属代执行 `/railway print`，**直接给玩家车票物品**；
 - 点“打印报销凭证” → `#voucher=订单号` → 附属代执行 `/railway voucher`，**直接给玩家报销凭证**；
+- 工具栏“补打车票 / 报销凭证”：输入已支付订单号查询后，内嵌页面重新生成车票或报销凭证物品；普通浏览器生成对应打印预览。
 - 空报销凭证的 tooltip 显示“空的报销凭证”，有数据时显示 `G1145 南京南站->清江南站` 这类车次区间。
 
 未安装 MCEF 时，售票机显示引导面板（持证人、公告、网页地址），不会崩溃。
@@ -147,6 +148,7 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
 /railway pay                # 支付全部未支付车票；余额不足会提示“支付失败：余额不足”
 /railway pay <订单号>       # 支付指定订单（输入后按 TAB 补全未支付订单号）
 /railway print <订单号>     # 打印车票并直接放入背包，同时镜像进身份证
+/railway reprint <订单号>   # 补打已打印过的车票（网页售票机补打按钮会调用它）
 /railway voucher <订单号>   # 打印报销凭证并放入背包
 /railway status             # 所在车站、已购车票、未支付车票
 ```

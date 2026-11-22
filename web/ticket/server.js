@@ -2063,6 +2063,26 @@ async function route(req, res, pathname, query) {
       return ok(res, { order: railwayOrderJson(db, order) }, '车票已打印');
     }
 
+    /* 补打车票：已支付订单可重复补打，累加打印次数并记录日志 */
+    if (second === 'orders' && third && fourth === 'reprint' && method === 'POST') {
+      const order = (db.orders || []).find((o) => o.orderNo === third || o.id === third);
+      if (!order) return fail(res, 404, '订单不存在');
+      if (order.status !== 'paid') return fail(res, 400, '订单未支付，不能补打车票');
+      order.printed = true;
+      order.printCount = Number(order.printCount || 0) + 1;
+      order.lastReprintAt = new Date().toISOString();
+      saveDB();
+      addLog(db, {
+        action: 'railway.ticket.reprint',
+        actor: 'player',
+        role: 'passenger',
+        target: order.orderNo,
+        detail: `补打车票（第 ${order.printCount} 次）${order.trainNo} ${order.fromStationName}→${order.toStationName}`,
+        level: 'info',
+      });
+      return ok(res, { order: railwayOrderJson(db, order) }, `第 ${order.printCount} 次打印，车票已补打`);
+    }
+
     /* 闸机进站/检票回写：把乘车人标记为已检票 */
     if (second === 'orders' && third && fourth === 'checkin' && method === 'POST') {
       const order = (db.orders || []).find((o) => o.orderNo === third || o.id === third);

@@ -180,13 +180,17 @@ public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVen
         int hash = url.indexOf('#');
         if (hash < 0) return;
         String fragment = url.substring(hash + 1);
-        String action = fragment.startsWith("print=") ? "print"
-                : fragment.startsWith("pay=") ? "pay"
-                : fragment.startsWith("voucher=") ? "voucher" : "";
+        int amp = fragment.indexOf('&');
+        String payload = amp >= 0 ? fragment.substring(0, amp) : fragment;
+        String nonce = amp >= 0 ? fragment.substring(amp + 1) : "";
+        String action = payload.startsWith("print=") ? "print"
+                : payload.startsWith("reprint=") ? "reprint"
+                : payload.startsWith("pay=") ? "pay"
+                : payload.startsWith("voucher=") ? "voucher" : "";
         if (action.isBlank()) return;
-        String orderNo = fragment.substring(action.length() + 1).replaceAll("[^A-Za-z0-9-]", "");
+        String orderNo = payload.substring(action.length() + 1).replaceAll("[^A-Za-z0-9-]", "");
         if (orderNo.isBlank()) return;
-        String key = action + ":" + orderNo;
+        String key = action + ":" + orderNo + ":" + nonce;
         if (key.equals(lastAction)) return;
         lastAction = key;
         var player = Minecraft.getInstance().player;
