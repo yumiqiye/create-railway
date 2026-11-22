@@ -6,6 +6,7 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class RailwayConfig {
     public static final ModConfigSpec SPEC;
     public static final ModConfigSpec.ConfigValue<String> WEB_BASE;
+    public static final ModConfigSpec.ConfigValue<String> ADMIN_WEB_BASE;
     public static final ModConfigSpec.ConfigValue<String> ADMIN_TOKEN;
     public static final ModConfigSpec.IntValue FALLBACK_CHECKIN_MINUTES;
     public static final ModConfigSpec.IntValue EMERALDS_PER_UNIT;
@@ -19,6 +20,8 @@ public final class RailwayConfig {
         builder.comment("清江铁路网页端（独立进程，默认 3000 端口）").push("web");
         WEB_BASE = builder.comment("网页后端根地址，不要以 / 结尾")
                 .define("baseUrl", "http://127.0.0.1:3000");
+        ADMIN_WEB_BASE = builder.comment("人工终端内嵌的 8001 后台根地址，不要以 / 结尾")
+                .define("adminBaseUrl", "http://localhost:8001");
         ADMIN_TOKEN = builder.comment("与网页端 [railway] adminToken 一致")
                 .define("adminToken", "qingjiang-railway-mod");
         FALLBACK_CHECKIN_MINUTES = builder.comment("网页端无法提供开检时间时，按发车前多少分钟开检")
@@ -42,6 +45,12 @@ public final class RailwayConfig {
     public static String baseUrl() {
         String value = WEB_BASE.get();
         if (value == null || value.isBlank()) return "http://127.0.0.1:3000";
+        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+    }
+
+    public static String adminBaseUrl() {
+        String value = ADMIN_WEB_BASE.get();
+        if (value == null || value.isBlank()) return "http://localhost:8001";
         return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 

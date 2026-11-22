@@ -1,99 +1,239 @@
 package qingjiang.railway.client;
 
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
-import net.neoforged.neoforge.network.PacketDistributor;
+import org.joml.Matrix4f;
+import org.lwjgl.glfw.GLFW;
+import qingjiang.railway.RailwayConfig;
 import qingjiang.railway.menu.StaffTerminalMenu;
-import qingjiang.railway.network.StaffActionPayload;
 import qingjiang.railway.network.StaffResultPayload;
 
-/** 人工终端界面：输入订单号/身份证号，执行查询、现金收款、出票、凭证、检票。 */
+/**
+ * 人工终端：POS/电脑/检票机直接内嵌 8001 后台网页。
+ * 不绘制自定义操作界面，鼠标与键盘事件全部转发给 MCEF。
+ */
 public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMenu> {
-    private EditBox queryBox;
-    private String status = "输入订单号、身份证号或乘客名后选择操作";
-    private boolean success = true;
+    private int px;
+    private int py;
+    private int pw;
+    private int ph;
+
+    private Object browser;
+    private int browserWidth;
+    private int browserHeight;
+    private int lastMouseX = -1;
+    private int lastMouseY = -1;
 
     public StaffTerminalScreen(StaffTerminalMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
-        this.imageWidth = 360;
-        this.imageHeight = 220;
     }
 
+    /** 兼容旧的人工服务返回包；网页模式不再在客户端显示状态文字。 */
     public static void accept(StaffResultPayload payload) {
-        if (net.minecraft.client.Minecraft.getInstance().screen instanceof StaffTerminalScreen screen) {
-            screen.status = payload.message();
-            screen.success = payload.success();
-        }
     }
 
     @Override
     protected void init() {
         super.init();
-        int x = this.leftPos;
-        int y = this.topPos;
-        this.queryBox = new EditBox(this.font, x + 16, y + 34, 328, 20, Component.literal("订单号 / 身份证号"));
-        this.queryBox.setMaxLength(64);
-        this.addRenderableWidget(this.queryBox);
-
-        int by = y + 62;
-        int w = 64;
-        int gap = 6;
-        if (menu.mode() != 2) {
-            addRenderableWidget(Button.builder(Component.literal("查询"), b -> send("query"))
-                    .bounds(x + 16, by, w, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("确认收款"), b -> send("pay"))
-                    .bounds(x + 16 + (w + gap), by, w, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("打印车票"), b -> send("print"))
-                    .bounds(x + 16 + (w + gap) * 2, by, w, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("报销凭证"), b -> send("voucher"))
-                    .bounds(x + 16 + (w + gap) * 3, by, w, 20).build());
-        }
-        addRenderableWidget(Button.builder(Component.literal("人工检票"), b -> send("check"))
-                .bounds(x + 16 + (w + gap) * 4, by, w, 20).build());
+        pw = Math.max(160, this.width - 24);
+        ph = Math.max(120, this.height - 44);
+        px = (this.width - pw) / 2;
+        py = 12;
+        openBrowser();
     }
 
-    private void send(String action) {
-        String value = this.queryBox == null ? "" : this.queryBox.getValue().trim();
-        if (value.isEmpty()) {
-            this.status = "请先输入订单号或身份证号";
-            this.success = false;
+    private String pageUrl() {
+        String base = RailwayConfig.adminBaseUrl();
+        return switch (menu.mode()) {
+            case 1 -> base + "/sales/index";
+            case 2 -> base + "/checkin/index";
+            default -> base + "/";
+        };
+    }
+
+    private String pageTitle() {
+        return switch (menu.mode()) {
+            case 1 -> "手持 POS · 8001 后台";
+            case 2 -> "人工检票机 · 8001 后台";
+            default -> "铁路电脑 · 8001 后台";
+        };
+    }
+
+    private void openBrowser() {
+        int scale = (int) Math.max(1.0D, Minecraft.getInstance().getWindow().getGuiScale());
+        int nextWidth = Math.min(2560, pw * scale);
+        int nextHeight = Math.min(1600, ph * scale);
+        if (browser != null) {
+            if (nextWidth != browserWidth || nextHeight != browserHeight) {
+                browserWidth = nextWidth;
+                browserHeight = nextHeight;
+                McefBridge.resize(browser, browserWidth, browserHeight);
+            }
             return;
         }
-        this.status = "处理中...";
-        PacketDistributor.sendToServer(new StaffActionPayload(action, value, menu.mode()));
-    }
-
-    @Override
-    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        graphics.fill(this.leftPos, this.topPos, this.leftPos + this.imageWidth,
-                this.topPos + this.imageHeight, 0xDD101418);
-        graphics.fill(this.leftPos, this.topPos, this.leftPos + this.imageWidth,
-                this.topPos + 1, 0xFF4FC3F7);
+        browserWidth = nextWidth;
+        browserHeight = nextHeight;
+        browser = McefBridge.create(pageUrl(), browserWidth, browserHeight);
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(graphics, mouseX, mouseY, partialTick);
-        super.render(graphics, mouseX, mouseY, partialTick);
-        int x = this.leftPos;
-        int y = this.topPos;
-        graphics.drawString(this.font, this.title, x + 16, y + 10, 0xFFFFFF, false);
-        String hint = menu.mode() == 1 ? "POS：现金收款 / 出票"
-                : menu.mode() == 2 ? "人工检票：身份证号或订单号" : "电脑：查询 / 现金收款 / 出票 / 凭证";
-        graphics.drawString(this.font, hint, x + 16, y + 21, 0xA0A0A0, false);
-
-        graphics.fill(x + 12, y + 92, x + imageWidth - 12, y + imageHeight - 14, 0x66000000);
-        int color = success ? 0x7CFF9A : 0xFF7A7A;
-        int lineY = y + 98;
-        for (var line : this.font.split(Component.literal(this.status), imageWidth - 32)) {
-            graphics.drawString(this.font, line, x + 18, lineY, color, false);
-            lineY += 11;
-            if (lineY > y + imageHeight - 18) break;
+        if (browser != null) {
+            graphics.fill(0, 0, this.width, this.height, 0xC0101014);
+            graphics.fill(px - 2, py - 2, px + pw + 2, py + ph + 2, 0xFF2F6FB5);
+            int texture = McefBridge.textureId(browser);
+            if (texture != 0) {
+                drawTexture(graphics, texture, px, py, pw, ph);
+            } else {
+                graphics.drawString(this.font, "8001 后台网页渲染中…", px + 16, py + 16, 0xFFFFFFFF, false);
+            }
+            graphics.fill(px, py + ph, px + pw, py + ph + 20, 0xCC0D1015);
+            graphics.drawString(this.font, pageTitle() + "　Esc 退出", px + 8, py + ph + 6, 0xFFB8C0CC, false);
+            int bx = toBrowserX(mouseX);
+            int by = toBrowserY(mouseY);
+            if (bx >= 0 && by >= 0 && (bx != lastMouseX || by != lastMouseY)) {
+                lastMouseX = bx;
+                lastMouseY = by;
+                McefBridge.mouseMove(browser, bx, by);
+            }
+            return;
         }
-        this.renderTooltip(graphics, mouseX, mouseY);
+        renderFallback(graphics);
+    }
+
+    @Override
+    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
+        // 网页终端完全自绘。
+    }
+
+    private static void drawTexture(GuiGraphics graphics, int texture, int x, int y, int width, int height) {
+        graphics.flush();
+        RenderSystem.setShader(GameRenderer::getPositionTexShader);
+        RenderSystem.setShaderTexture(0, texture);
+        RenderSystem.enableBlend();
+        Matrix4f matrix = graphics.pose().last().pose();
+        BufferBuilder buffer = Tesselator.getInstance().begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
+        buffer.addVertex(matrix, x, y + height, 0).setUv(0.0F, 1.0F);
+        buffer.addVertex(matrix, x + width, y + height, 0).setUv(1.0F, 1.0F);
+        buffer.addVertex(matrix, x + width, y, 0).setUv(1.0F, 0.0F);
+        buffer.addVertex(matrix, x, y, 0).setUv(0.0F, 0.0F);
+        BufferUploader.drawWithShader(buffer.buildOrThrow());
+        RenderSystem.disableBlend();
+    }
+
+    private void renderFallback(GuiGraphics graphics) {
+        graphics.fill(0, 0, this.width, this.height, 0xC0101014);
+        graphics.fill(px, py, px + pw, py + ph, 0xFF14181F);
+        graphics.fill(px, py, px + pw, py + 44, 0xFF1D232C);
+        graphics.drawString(this.font, pageTitle(), px + 16, py + 12, 0xFFF5C542, false);
+        graphics.drawString(this.font, "未检测到 MCEF，无法内嵌 8001 后台网页", px + 16, py + 28, 0xFFB8C0CC, false);
+        graphics.drawString(this.font, "安装 mcef-neoforge 1.21.1 后重新进入即可。", px + 16, py + 66, 0xFFB8C0CC, false);
+        graphics.drawString(this.font, "也可在浏览器打开：", px + 16, py + 92, 0xFF9AA3B2, false);
+        graphics.drawString(this.font, pageUrl(), px + 16, py + 108, 0xFF8ED1FC, false);
+        graphics.drawString(this.font, "Esc 退出", px + 16, py + ph - 20, 0xFF7B8798, false);
+    }
+
+    private int toBrowserX(double mouseX) {
+        if (mouseX < px || mouseX > px + pw || pw <= 0) return -1;
+        return (int) Math.max(0, Math.min(browserWidth - 1, (mouseX - px) * browserWidth / pw));
+    }
+
+    private int toBrowserY(double mouseY) {
+        if (mouseY < py || mouseY > py + ph || ph <= 0) return -1;
+        return (int) Math.max(0, Math.min(browserHeight - 1, (mouseY - py) * browserHeight / ph));
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (browser != null) {
+            int bx = toBrowserX(mouseX);
+            int by = toBrowserY(mouseY);
+            if (bx >= 0 && by >= 0) {
+                McefBridge.mouseMove(browser, bx, by);
+                McefBridge.mousePress(browser, bx, by, button);
+                return true;
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (browser != null) {
+            int bx = toBrowserX(mouseX);
+            int by = toBrowserY(mouseY);
+            McefBridge.mouseRelease(browser, bx < 0 ? 0 : bx, by < 0 ? 0 : by, button);
+            return true;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (browser != null) {
+            int bx = toBrowserX(mouseX);
+            int by = toBrowserY(mouseY);
+            if (bx >= 0 && by >= 0) McefBridge.mouseMove(browser, bx, by);
+            return true;
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double deltaX, double deltaY) {
+        if (browser != null) {
+            int bx = toBrowserX(mouseX);
+            int by = toBrowserY(mouseY);
+            if (bx >= 0 && by >= 0) McefBridge.mouseWheel(browser, bx, by, deltaY, 0);
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (browser != null) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) return super.keyPressed(keyCode, scanCode, modifiers);
+            McefBridge.keyPress(browser, keyCode, scanCode, modifiers);
+            return true;
+        }
+        return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
+        if (browser != null) {
+            McefBridge.keyRelease(browser, keyCode, scanCode, modifiers);
+            return true;
+        }
+        return super.keyReleased(keyCode, scanCode, modifiers);
+    }
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        if (browser != null) {
+            McefBridge.keyTyped(browser, codePoint, modifiers);
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
+    }
+
+    @Override
+    public void removed() {
+        if (browser != null) {
+            McefBridge.close(browser);
+            browser = null;
+        }
+        super.removed();
     }
 }

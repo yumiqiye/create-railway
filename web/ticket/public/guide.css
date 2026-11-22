@@ -248,8 +248,18 @@ body {
   color: #7090aa;
   font-size: 15px;
 }
-/* 方块内嵌模式：隐藏交互控件，内容始终撑满浏览器视口 */
-body.embed .guide { height: 100vh; min-height: 0; }
+/* 方块内嵌模式：按整屏方块数自动放大字号，隐藏交互控件，内容始终撑满浏览器视口 */
+body.embed {
+  --ui-scale: 1;
+  --ui-width: 100%;
+  --ui-height: 100vh;
+}
+body.embed .guide {
+  zoom: var(--ui-scale);
+  width: var(--ui-width);
+  height: var(--ui-height);
+  min-height: 0;
+}
 body.embed .guide-footer { display: none; }
 body.embed .guide-main { margin-bottom: 12px; }
 body.embed .station-picker { display: none; }

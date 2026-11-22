@@ -8,7 +8,16 @@
   var params = new URLSearchParams(window.location.search);
   var stationId = params.get('stationId') || '';
   var date = params.get('date') || '';
-  if (params.get('embed') === '1') document.body.classList.add('embed');
+  if (params.get('embed') === '1') {
+    document.body.classList.add('embed');
+    var cols = Math.max(1, Math.min(16, parseInt(params.get('cols'), 10) || 1));
+    var rows = Math.max(1, Math.min(16, parseInt(params.get('rows'), 10) || 1));
+    var uiScale = Math.max(1, Math.min(2.4, Math.max(cols / 6, rows / 6, Math.sqrt(cols * rows) / 9)));
+    var root = document.documentElement;
+    root.style.setProperty('--ui-scale', uiScale.toFixed(2));
+    root.style.setProperty('--ui-width', (99.9 / uiScale).toFixed(3) + '%');
+    root.style.setProperty('--ui-height', (99.9 / uiScale).toFixed(3) + 'vh');
+  }
   try {
     stationId = stationId || localStorage.getItem('qj_guide_station') || '';
   } catch (e) { /* ignore */ }

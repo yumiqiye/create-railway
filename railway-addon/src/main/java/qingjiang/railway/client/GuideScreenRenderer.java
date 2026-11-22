@@ -44,7 +44,7 @@ import java.util.Map;
 public final class GuideScreenRenderer {
     private static final int MAX_CHAIN = 16;
     private static final int TILE_PIXELS = 480;
-    private static final int MAX_TEXTURE_WIDTH = 3840;
+    private static final int MAX_TEXTURE_SIZE = 4096;
     private static final double VIEW_DISTANCE = 96.0D;
     private static final long BROWSER_IDLE_MS = 15_000L;
 
@@ -122,62 +122,86 @@ public final class GuideScreenRenderer {
         ScreenBrowser browser = BROWSERS.get(group.origin);
 
         if (browser == null) {
-            browser = new ScreenBrowser(group.stationId, -1, now + 500L);
+            browser = new ScreenBrowser(group.stationId, -1, -1, now + 500L);
             BROWSERS.put(group.origin, browser);
         } else if (!browser.stationId.equals(group.stationId)) {
             browser.close();
-            browser = new ScreenBrowser(group.stationId, -1, now + 500L);
+            browser = new ScreenBrowser(group.stationId, -1, -1, now + 500L);
             BROWSERS.put(group.origin, browser);
         }
 
         browser.lastSeen = now;
+        int pixelsPerBlock = Math.max(1, Math.min(TILE_PIXELS,
+                MAX_TEXTURE_SIZE / Math.max(group.cols, group.rows)));
+        int width = pixelsPerBlock * group.cols;
+        int height = pixelsPerBlock * group.rows;
         if (browser.browser == null) {
             if (now < browser.nextAttempt) return;
-            String url = RailwayConfig.baseUrl() + "/guide.html?embed=1&screen=1";
+            String url = RailwayConfig.baseUrl() + "/guide.html?embed=1&screen=1"
+                    + "&cols=" + group.cols + "&rows=" + group.rows;
             if (!group.stationId.isBlank()) {
                 url += "&stationId=" + URLEncoder.encode(group.stationId, StandardCharsets.UTF_8);
             }
-            int width = Math.min(MAX_TEXTURE_WIDTH, TILE_PIXELS * group.total);
-            browser.browser = McefBridge.create(url, width, TILE_PIXELS);
-            browser.tiles = group.total;
+            browser.browser = McefBridge.create(url, width, height);
+            browser.cols = group.cols;
+            browser.rows = group.rows;
             browser.width = width;
+            browser.height = height;
             browser.nextAttempt = now + 1_000L;
             if (browser.browser == null) return;
-        } else if (browser.tiles != group.total) {
-            browser.tiles = group.total;
-            browser.width = Math.min(MAX_TEXTURE_WIDTH, TILE_PIXELS * group.total);
-            McefBridge.resize(browser.browser, browser.width, TILE_PIXELS);
+        } else if (browser.cols != group.cols || browser.rows != group.rows) {
+            browser.cols = group.cols;
+            browser.rows = group.rows;
+            browser.width = width;
+            browser.height = height;
+            McefBridge.resize(browser.browser, width, height);
         }
 
         int texture = McefBridge.textureId(browser.browser);
         if (texture == 0) return;
 
-        float u0 = group.index / (float) group.total;
-        float u1 = (group.index + 1) / (float) group.total;
+        float u0 = group.col / (float) group.cols;
+        float u1 = (group.col + 1) / (float) group.cols;
+        float v0 = (group.rows - 1 - group.row) / (float) group.rows;
+        float v1 = (group.rows - group.row) / (float) group.rows;
         RenderSystem.setShaderTexture(0, texture);
-        drawTile(poseStack, screen.getBlockPos(), facing, u0, u1);
+        drawTile(poseStack, screen.getBlockPos(), facing, u0, u1, v0, v1);
     }
 
-    /** 找到这条拼屏最左（按观看方向）的方块、当前方块序号和总数。 */
+    /** 找到这块拼屏的左下角、当前方块所在的行列和整屏列数/行数；最多 16×16。 */
     private static Group groupFor(ClientLevel level, GuideScreenBlockEntity screen, BlockState state, Direction facing) {
         Direction right = rightward(facing);
         BlockPos pos = screen.getBlockPos();
-        BlockPos origin = pos;
-        int index = 0;
+        BlockPos left = pos;
+        int col = 0;
         for (int i = 0; i < MAX_CHAIN - 1; i++) {
-            BlockPos next = origin.relative(right.getOpposite());
+            BlockPos next = left.relative(right.getOpposite());
             if (!sameScreen(level, next, facing, screen.stationId())) break;
-            origin = next;
-            index++;
+            left = next;
+            col++;
         }
-        int total = index + 1;
-        BlockPos cursor = pos;
-        for (int i = 0; i < MAX_CHAIN - 1 && total < MAX_CHAIN; i++) {
+        BlockPos bottom = left;
+        int row = 0;
+        for (int i = 0; i < MAX_CHAIN - 1; i++) {
+            BlockPos next = bottom.below();
+            if (!sameScreen(level, next, facing, screen.stationId())) break;
+            bottom = next;
+            row++;
+        }
+
+        int cols = 1;
+        BlockPos cursor = left;
+        while (cols < MAX_CHAIN && sameScreen(level, cursor.relative(right), facing, screen.stationId())) {
             cursor = cursor.relative(right);
-            if (!sameScreen(level, cursor, facing, screen.stationId())) break;
-            total++;
+            cols++;
         }
-        return new Group(origin.immutable(), index, total, screen.stationId());
+        int rows = 1;
+        cursor = bottom;
+        while (rows < MAX_CHAIN && sameScreen(level, cursor.above(), facing, screen.stationId())) {
+            cursor = cursor.above();
+            rows++;
+        }
+        return new Group(bottom.immutable(), col, row, cols, rows, screen.stationId());
     }
 
     private static boolean sameScreen(ClientLevel level, BlockPos pos, Direction facing, String stationId) {
@@ -199,7 +223,8 @@ public final class GuideScreenRenderer {
         };
     }
 
-    private static void drawTile(PoseStack poseStack, BlockPos pos, Direction facing, float u0, float u1) {
+    private static void drawTile(PoseStack poseStack, BlockPos pos, Direction facing,
+                                 float u0, float u1, float v0, float v1) {
         Matrix4f matrix = poseStack.last().pose();
         BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
@@ -210,28 +235,28 @@ public final class GuideScreenRenderer {
 
         switch (facing) {
             case NORTH -> {
-                vertex(buffer, matrix, x + 1, y, z - eps, u0, 1);
-                vertex(buffer, matrix, x, y, z - eps, u1, 1);
-                vertex(buffer, matrix, x, y + 1, z - eps, u1, 0);
-                vertex(buffer, matrix, x + 1, y + 1, z - eps, u0, 0);
+                vertex(buffer, matrix, x + 1, y, z - eps, u0, v1);
+                vertex(buffer, matrix, x, y, z - eps, u1, v1);
+                vertex(buffer, matrix, x, y + 1, z - eps, u1, v0);
+                vertex(buffer, matrix, x + 1, y + 1, z - eps, u0, v0);
             }
             case SOUTH -> {
-                vertex(buffer, matrix, x, y, z + 1 + eps, u0, 1);
-                vertex(buffer, matrix, x + 1, y, z + 1 + eps, u1, 1);
-                vertex(buffer, matrix, x + 1, y + 1, z + 1 + eps, u1, 0);
-                vertex(buffer, matrix, x, y + 1, z + 1 + eps, u0, 0);
+                vertex(buffer, matrix, x, y, z + 1 + eps, u0, v1);
+                vertex(buffer, matrix, x + 1, y, z + 1 + eps, u1, v1);
+                vertex(buffer, matrix, x + 1, y + 1, z + 1 + eps, u1, v0);
+                vertex(buffer, matrix, x, y + 1, z + 1 + eps, u0, v0);
             }
             case EAST -> {
-                vertex(buffer, matrix, x + 1 + eps, y, z + 1, u0, 1);
-                vertex(buffer, matrix, x + 1 + eps, y, z, u1, 1);
-                vertex(buffer, matrix, x + 1 + eps, y + 1, z, u1, 0);
-                vertex(buffer, matrix, x + 1 + eps, y + 1, z + 1, u0, 0);
+                vertex(buffer, matrix, x + 1 + eps, y, z + 1, u0, v1);
+                vertex(buffer, matrix, x + 1 + eps, y, z, u1, v1);
+                vertex(buffer, matrix, x + 1 + eps, y + 1, z, u1, v0);
+                vertex(buffer, matrix, x + 1 + eps, y + 1, z + 1, u0, v0);
             }
             case WEST -> {
-                vertex(buffer, matrix, x - eps, y, z, u0, 1);
-                vertex(buffer, matrix, x - eps, y, z + 1, u1, 1);
-                vertex(buffer, matrix, x - eps, y + 1, z + 1, u1, 0);
-                vertex(buffer, matrix, x - eps, y + 1, z, u0, 0);
+                vertex(buffer, matrix, x - eps, y, z, u0, v1);
+                vertex(buffer, matrix, x - eps, y, z + 1, u1, v1);
+                vertex(buffer, matrix, x - eps, y + 1, z + 1, u1, v0);
+                vertex(buffer, matrix, x - eps, y + 1, z, u0, v0);
             }
             default -> {
             }
@@ -262,14 +287,17 @@ public final class GuideScreenRenderer {
     private static final class ScreenBrowser {
         private final String stationId;
         private Object browser;
-        private int tiles;
+        private int cols;
+        private int rows;
         private int width;
+        private int height;
         private long lastSeen;
         private long nextAttempt;
 
-        private ScreenBrowser(String stationId, int tiles, long nextAttempt) {
+        private ScreenBrowser(String stationId, int cols, int rows, long nextAttempt) {
             this.stationId = stationId;
-            this.tiles = tiles;
+            this.cols = cols;
+            this.rows = rows;
             this.nextAttempt = nextAttempt;
         }
 
@@ -281,5 +309,5 @@ public final class GuideScreenRenderer {
         }
     }
 
-    private record Group(BlockPos origin, int index, int total, String stationId) {}
+    private record Group(BlockPos origin, int col, int row, int cols, int rows, String stationId) {}
 }

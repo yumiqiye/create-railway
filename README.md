@@ -21,7 +21,7 @@ cd railway-addon
 gradlew.bat build
 ```
 
-产物：`railway-addon/build/libs/HexieRailwayAddon-1.21.1-1.0.0.jar`。
+产物：`railway-addon/build/libs/HexieRailwayAddon-1.21.1-1.0.1.jar`。
 
 网页端安装 MCEF（`mcef-neoforge`）后，售票机与车站引导屏可在游戏内直接渲染网页；未安装时回退为普通界面/深色屏体。
 

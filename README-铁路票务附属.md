@@ -31,7 +31,7 @@ cd "E:\新建文件夹\railway\railway-addon"
 - Gradle 插件：阿里云 `gradle-plugin`
 - 后台 npm：`web/admin/.npmrc` 已指向 `registry.npmmirror.com`
 
-产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.0.jar`。  
+产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.1.jar`。  
 放进 `mods`，与 `CRH-HeXie-*.jar` 同目录即可。客户端想用内嵌网页，再放 MCEF（NeoForge 1.21.1，2.1.x）。
 
 ### 2. 启动网页端
@@ -52,6 +52,7 @@ node server.js
 ```toml
 [web]
     baseUrl = "http://127.0.0.1:3000"
+    adminBaseUrl = "http://localhost:8001"
     adminToken = "qingjiang-railway-mod"
     fallbackCheckinMinutes = 30
     emeraldsPerFareUnit = 1
@@ -62,6 +63,7 @@ node server.js
 ```
 
 - `baseUrl` 必须能被**游戏服务端**访问。
+- `adminBaseUrl` 是 POS/电脑/人工检票机在游戏内 MCEF 打开的 8001 后台地址。
 - `adminToken` 与后台“系统设置 → 铁路品牌 → 模组管理令牌”一致。
 - `fallbackCheckinMinutes` 只在网页端暂时不可用时兜底；正常情况下开检时间由后台设置自动同步。
 - `currencyItem` / `currencyName` / `currencyPerFareUnit` 决定游戏内扣款物品与提示名称，例如改成 `minecraft:diamond`、`钻石`。
@@ -88,9 +90,9 @@ node server.js
 
 | 物品 | 注册名 | 用法 |
 | --- | --- | --- |
-| 铁路电脑方块 | `hexie_railway:computer` | 管理员右击打开人工终端；普通玩家右击发起现金支付，聊天栏显示“您有未支付的车票信息”和订单号 |
-| 手持 POS | `hexie_railway:pos` | 管理员右击打开 POS，可查询订单、确认收款、打印车票/报销凭证 |
-| 人工检票机 | `hexie_railway:manual_checker` | 管理员右击打开，输入身份证号或订单号人工检票，并让面前 6 格内的 CRH 闸机开门 |
+| 铁路电脑方块 | `hexie_railway:computer` | 管理员右击在游戏内打开 `http://localhost:8001/` 后台；普通玩家右击发起现金支付，聊天栏显示未支付车票信息 |
+| 手持 POS | `hexie_railway:pos` | 管理员右击在游戏内直接打开 `http://localhost:8001/sales/index`（售票窗口） |
+| 人工检票机 | `hexie_railway:manual_checker` | 管理员右击打开 `http://localhost:8001/checkin/index`（检票管理），并让面前 6 格内的 CRH 闸机开门 |
 | 车站引导屏 | `hexie_railway:guide_screen` | 无右键交互，放置后自动显示所在车站的 `guide.html`；相邻同朝向的屏自动拼成一条长屏，网页按整条屏的宽高自适应缩放 |
 
 电脑/POS/人工检票机都要求权限等级 2（OP）才能使用工作人员界面；普通玩家使用电脑只会发起现金支付请求。
@@ -99,9 +101,9 @@ node server.js
 
 - 放置时按玩家朝向决定屏幕正面，可用普通方块方式旋转（如结构方块/命令 `setblock` 时指定 `facing`）。
 - 自动读取放置位置所属车站的网页后台 ID；屏幕会显示该站的检票口引导。
-- **横向拼接**：一排相邻、同朝向、同车站的引导屏共用同一个 Chromium 浏览器，整页按总宽度渲染，每个方块只显示对应切片；拆除或增减一块会自动重新适配。
-- 需要安装 MCEF（`mcef-neoforge`）；未安装时只显示深色屏体，不会崩溃。
-- 网页端会以 `?embed=1` 打开，隐藏车站下拉框并撑满视口。
+- **拼屏**：相邻、同朝向、同车站的引导屏自动组成矩形屏幕，最大 **16 宽 × 16 高**；每个方块显示整页对应的一块切片。
+- 屏幕较小时按单块比例显示；达到 6×6 以上会随方块数量自动放大字号，16×16 时字号约为单块的 2.4 倍，远处也能看清。
+- 网页端以 `?embed=1&cols=<宽>&rows=<高>` 打开，按整屏比例渲染并自动缩放；未安装 MCEF 时只显示深色屏体，不会崩溃。
 
 ---
 
