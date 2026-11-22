@@ -1,0 +1,64 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+version = mod_version
+group = mod_group_id
+base.archivesName = "HexieRailwayAddon-${minecraft_version}"
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+// ❌ 不要添加 repositories {} 块
+
+// NFRT 的 Minecraft 版本清单走 BMCLAPI，避免直连 piston-meta
+def nfrtExt = extensions.findByName('neoFormRuntime')
+if (nfrtExt != null) {
+    nfrtExt.launcherManifestUrl.set('https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json')
+    nfrtExt.enableCache.set(true)
+}
+
+neoForge {
+    version = neo_version
+
+    runs {
+        client {
+            client()
+        }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    var properties = [mod_version: mod_version, mod_name: mod_name,
+                      minecraft_version: minecraft_version, neo_version: neo_version]
+    inputs.properties properties
+    filesMatching('META-INF/neoforge.mods.toml') { expand properties }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('jar', Jar).configure {
+    manifest.attributes([
+            'Specification-Title': mod_name,
+            'Specification-Vendor': 'Qingjiang Railway',
+            'Specification-Version': '1',
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.version,
+            'Implementation-Vendor': 'Qingjiang Railway'
+    ])
+}

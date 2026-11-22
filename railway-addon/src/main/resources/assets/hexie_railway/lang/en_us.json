@@ -1,0 +1,10 @@
+{
+  "item.hexie_railway.id_card": "Resident ID Card",
+  "item.hexie_railway.reimbursement": "Reimbursement Receipt",
+  "item.hexie_railway.railway_ticket": "Railway e-Ticket",
+  "item.hexie_railway.pos": "Handheld POS",
+  "item.hexie_railway.manual_checker": "Manual Ticket Checker",
+  "block.hexie_railway.computer": "Railway Computer",
+  "block.hexie_railway.guide_screen": "Station Guide Screen",
+  "itemGroup.hexie_railway.railway": "Qingjiang Railway"
+}

@@ -1,0 +1,44 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+issueTrackerURL="https://example.invalid/railway-addon/issues"
+[[mods]]
+modId = "hexie_railway"
+version = "${mod_version}"
+displayName = "清江铁路附属 · Hexie Railway Addon"
+displayURL = "https://fairingstudio.com/"
+authors = "Qingjiang Railway"
+description = '''
+CRH（hexie）模组的独立铁路票务附属：
+身份证、售票机网页购票、进站/检票/出站闸机、车票与报销凭证打印、车站与票价同步。
+
+本模组不修改 CRH 源码，只通过方块注册名/物品注册名与 CRH 联动；未安装 CRH 时物品仍可用，但闸机/售票机功能不会启用。
+'''
+
+[[dependencies.hexie_railway]]
+modId="neoforge"
+type="required"
+versionRange="[${neo_version},)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.hexie_railway]]
+modId="minecraft"
+type="required"
+versionRange="[${minecraft_version}]"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.hexie_railway]]
+modId="hexie"
+type="optional"
+versionRange="[0.10,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.hexie_railway]]
+modId="mcef"
+type="optional"
+versionRange="[2.1,)"
+ordering="AFTER"
+side="CLIENT"

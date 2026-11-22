@@ -1,0 +1,32 @@
+// 仅用于本机构建：关闭 Gradle/JVM 的 SSL 证书与主机名校验。
+// 启动方式：gradlew -I trust-all-ssl.gradle build
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+
+def trustAll = [
+        checkClientTrusted: { X509Certificate[] chain, String authType -> },
+        checkServerTrusted: { X509Certificate[] chain, String authType -> },
+        getAcceptedIssuers: { -> new X509Certificate[0] }
+] as X509TrustManager
+
+def sslContext = SSLContext.getInstance('TLS')
+sslContext.init(null, [trustAll] as TrustManager[], new SecureRandom())
+SSLContext.setDefault(sslContext)
+HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.getSocketFactory())
+HttpsURLConnection.setDefaultHostnameVerifier({ hostname, session -> true } as javax.net.ssl.HostnameVerifier)
+
+// 移除 ModDevGradle 自动注入的官方 NeoForged 仓库，避免卡在不可达 IP
+allprojects { p ->
+    p.afterEvaluate {
+        def dead = p.repositories.findAll { repo ->
+            repo.hasProperty('url') && repo.url.toString().contains('maven.neoforged.net')
+        }
+        dead.each { p.repositories.remove(it) }
+    }
+}
+
+println 'SSL verification disabled for this build (trust-all enabled).'

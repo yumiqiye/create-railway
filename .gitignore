@@ -1,0 +1,60 @@
+# 构建产物
+build/
+dist/
+out/
+target/
+*.class
+*.jar
+!railway-addon/gradle/wrapper/gradle-wrapper.jar
+!.gitkeep
+
+# Gradle / ModDev
+.gradle/
+.api-src/
+.plugin-inspect/
+local-maven/
+run/
+
+# Node / Vue
+node_modules/
+.pnpm-store/
+.vite/
+.cache/
+coverage/
+*.tsbuildinfo
+
+# 日志与临时文件
+*.log
+*.tmp
+*.bak
+logs/
+
+# 本地配置与密钥（保留示例）
+web/config.toml
+web/config.local.toml
+web/admin/.env
+web/admin/.env.*
+!web/admin/.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
+
+# 运行数据与数据库
+web/ticket/data/
+web/ticket/*.db
+web/ticket/*.sqlite
+web/ticket/*.sqlite3
+web/shared/data/
+web/check/data/
+
+# 上游源码与打包备份
+CRH-HeXie-main/
+CRH-HeXie-main.zip
+.cmd-test/
+
+# 操作系统与 IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

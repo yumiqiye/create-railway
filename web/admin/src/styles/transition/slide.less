@@ -1,0 +1,45 @@
+/*
+ * ══════════════════════════════════════════════════════
+ *   清 江 铁 路  1 2 3 0 6    QINGJIANG RAILWAY
+ *   版权所有，仿冒必究    All Rights Reserved
+ * ══════════════════════════════════════════════════════
+ */
+.slide-y-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+    transform: translateY(-15px);
+  }
+}
+
+.slide-y-reverse-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+}
+
+.slide-x-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+    transform: translateX(-15px);
+  }
+}
+
+.slide-x-reverse-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+    transform: translateX(15px);
+  }
+}

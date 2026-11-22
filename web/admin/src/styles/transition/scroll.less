@@ -1,0 +1,73 @@
+/*
+ * ══════════════════════════════════════════════════════
+ *   清 江 铁 路  1 2 3 0 6    QINGJIANG RAILWAY
+ *   版权所有，仿冒必究    All Rights Reserved
+ * ══════════════════════════════════════════════════════
+ */
+.scroll-y-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+  }
+
+  &-enter-from {
+    transform: translateY(-15px);
+  }
+
+  &-leave-to {
+    transform: translateY(15px);
+  }
+}
+
+.scroll-y-reverse-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+  }
+
+  &-enter-from {
+    transform: translateY(15px);
+  }
+
+  &-leave-to {
+    transform: translateY(-15px);
+  }
+}
+
+.scroll-x-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+  }
+
+  &-enter-from {
+    transform: translateX(-15px);
+  }
+
+  &-leave-to {
+    transform: translateX(15px);
+  }
+}
+
+.scroll-x-reverse-transition {
+  .transition-default();
+
+  &-enter-from,
+  &-leave-to {
+    opacity: 0;
+  }
+
+  &-enter-from {
+    transform: translateX(15px);
+  }
+
+  &-leave-to {
+    transform: translateX(-15px);
+  }
+}

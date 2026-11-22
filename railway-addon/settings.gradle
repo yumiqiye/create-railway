@@ -1,0 +1,70 @@
+pluginManagement {
+    repositories {
+        maven { url = 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url = 'https://maven.aliyun.com/repository/public' }
+        gradlePluginPortal()
+        maven { url = 'https://maven.neoforged.net/releases' }
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.PREFER_SETTINGS
+    repositories {
+        // 官方源拿不到的构件强制只从本地仓库解析
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'local-maven'
+                    url = uri('local-maven')
+                    metadataSources {
+                        gradleMetadata()
+                        mavenPom()
+                        artifact()
+                    }
+                }
+            }
+            filter {
+                includeModule('net.neoforged', 'neoform-runtime')
+                includeModule('net.neoforged', 'neoforge')
+                includeModule('net.neoforged', 'neoform')
+                includeModule('net.neoforged', 'minecraft-dependencies')
+                includeModule('net.neoforged.jst', 'jst-cli-bundle')
+                includeModule('net.neoforged.fancymodloader', 'earlydisplay')
+                includeModule('net.neoforged', 'mergetool')
+                includeModule('net.neoforged.installertools', 'installertools')
+            }
+        }
+
+        // 本地仓库：已包含 Gradle 缓存中的全部 NeoForge 依赖，可离线解析
+        maven {
+            name = 'local-maven-all'
+            url = uri('local-maven')
+            metadataSources { gradleMetadata(); mavenPom(); artifact() }
+        }
+
+        // 南京大学 BMCLAPI 镜像（当前网络实测可用，走 IPv4）
+        maven {
+            name = 'BMCLAPI-NJU'
+            url = 'https://mirror.nju.edu.cn/bmclapi/'
+            metadataSources { artifact() }
+        }
+
+        // Mojang 官方库（编译 Minecraft 依赖：brigadier/joml/netty/authlib/lwjgl）
+        maven {
+            name = 'Minecraft Libraries'
+            url = 'https://libraries.minecraft.net/'
+        }
+
+        // 国内公共镜像
+        maven { url = 'https://maven.aliyun.com/repository/public' }
+        maven { url = 'https://mirrors.huaweicloud.com/repository/maven/' }
+        maven { url = 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+        
+        // 官方仓库
+        // 官方 NeoForged 仓库已移除：域名解析到不可达 IP，改用镜像
+        mavenCentral()
+
+    }
+}
+
+rootProject.name = 'HexieRailwayAddon'

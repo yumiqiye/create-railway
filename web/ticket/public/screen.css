@@ -1,0 +1,342 @@
+/*
+ * ══════════════════════════════════════════════════════
+ *   清 江 铁 路  1 2 3 0 6    QINGJIANG RAILWAY
+ *   版权所有，仿冒必究    All Rights Reserved
+ * ══════════════════════════════════════════════════════
+ */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #06111f;
+  color: #eaf4ff;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Arial, sans-serif;
+  overflow: hidden;
+}
+.screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(27, 100, 196, 0.26), transparent 36%),
+    radial-gradient(circle at 88% 100%, rgba(0, 168, 160, 0.14), transparent 34%),
+    linear-gradient(160deg, #07182b 0%, #06101d 58%, #040b14 100%);
+}
+.screen-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 30px 16px;
+  border-bottom: 1px solid rgba(98, 181, 255, 0.22);
+  background: linear-gradient(180deg, rgba(10, 40, 70, 0.8), rgba(4, 16, 30, 0.2));
+}
+.brand-mark {
+  font-size: clamp(22px, 2.3vw, 34px);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #fff;
+}
+.brand-sub {
+  margin-top: 4px;
+  font-size: clamp(9px, 0.8vw, 12px);
+  letter-spacing: 0.22em;
+  color: rgba(157, 205, 255, 0.72);
+}
+.header-center {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.station-name {
+  font-size: clamp(26px, 2.8vw, 42px);
+  font-weight: 700;
+  color: #8fd0ff;
+  text-shadow: 0 0 18px rgba(73, 163, 255, 0.45);
+}
+.station-code {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: #7c9fbe;
+}
+.header-right {
+  text-align: right;
+}
+.clock {
+  font-family: Consolas, "DIN Alternate", monospace;
+  font-size: clamp(28px, 3vw, 46px);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #fff;
+}
+.date {
+  font-size: 12px;
+  color: #8aa6c0;
+  letter-spacing: 0.08em;
+}
+.announcement {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 30px;
+  background: rgba(11, 68, 115, 0.38);
+  border-bottom: 1px solid rgba(98, 181, 255, 0.14);
+}
+.announcement-label {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid rgba(96, 190, 255, 0.5);
+  border-radius: 3px;
+  font-size: 11px;
+  color: #8fd0ff;
+}
+.announcement-text {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: clamp(12px, 1.05vw, 15px);
+  color: #d6e9fb;
+}
+.live-dot {
+  flex: none;
+  font-size: 11px;
+  color: #77d8c7;
+}
+.live-dot span {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #43e2b6;
+  box-shadow: 0 0 8px #43e2b6;
+  animation: pulse 1.8s infinite;
+}
+@keyframes pulse {
+  50% { opacity: 0.25; }
+}
+.screen-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  padding: 14px 30px;
+  min-height: 0;
+}
+.board {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid rgba(98, 181, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(7, 27, 48, 0.64);
+  overflow: hidden;
+}
+.board-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(98, 181, 255, 0.18);
+  font-size: clamp(13px, 1.1vw, 16px);
+  font-weight: 700;
+  color: #bfe3ff;
+}
+.board-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: #7597b5;
+}
+.table-head,
+.train-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.6fr 0.7fr 0.8fr 0.7fr 0.7fr 1.1fr 1fr;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px;
+}
+.table-head {
+  height: 30px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #6e92b2;
+  background: rgba(14, 49, 82, 0.42);
+}
+.train-list {
+  flex: 1;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+.train-row {
+  min-height: clamp(42px, 5.1vh, 58px);
+  border-bottom: 1px solid rgba(84, 146, 200, 0.12);
+  font-size: clamp(12px, 1.05vw, 16px);
+}
+.train-row.boarding {
+  background: linear-gradient(90deg, rgba(24, 118, 189, 0.34), rgba(24, 118, 189, 0.04));
+}
+.train-row.closed {
+  opacity: 0.55;
+}
+.train-row.cancelled {
+  opacity: 0.48;
+}
+.train-row.delayed {
+  background: linear-gradient(90deg, rgba(198, 126, 20, 0.26), rgba(198, 126, 20, 0.03));
+}
+.train-no {
+  font-family: Consolas, "DIN Alternate", monospace;
+  font-size: clamp(16px, 1.5vw, 23px);
+  font-weight: 800;
+  color: #fff;
+}
+.train-dest {
+  color: #cfdfef;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.train-time {
+  font-family: Consolas, "DIN Alternate", monospace;
+  font-size: clamp(15px, 1.35vw, 21px);
+  color: #8fd0ff;
+}
+.train-gate,
+.train-platform {
+  font-size: clamp(11px, 0.95vw, 14px);
+  color: #9bb6cc;
+}
+.landmark {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #a9c3d9;
+}
+.landmark-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 7px currentColor;
+}
+.status {
+  justify-self: start;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: clamp(10px, 0.88vw, 13px);
+  white-space: nowrap;
+}
+.status.waiting { color: #b7cde0; background: rgba(120, 153, 180, 0.16); }
+.status.boarding { color: #7ee7c3; background: rgba(40, 190, 140, 0.18); border: 1px solid rgba(80, 230, 180, 0.32); }
+.status.closed { color: #7f95a8; background: rgba(100, 120, 140, 0.12); }
+.status.maintenance { color: #ffc06a; background: rgba(255, 160, 40, 0.16); }
+.status.delayed { color: #ffd27a; background: rgba(220, 150, 30, 0.18); border: 1px solid rgba(255, 190, 80, 0.28); }
+.status.cancelled { color: #ff8f8f; background: rgba(210, 50, 50, 0.16); border: 1px solid rgba(255, 100, 100, 0.26); }
+.checkin-count {
+  text-align: right;
+  color: #a9c3d9;
+}
+.checkin-count strong {
+  color: #fff;
+  font-family: Consolas, monospace;
+}
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.side-card {
+  border: 1px solid rgba(98, 181, 255, 0.2);
+  border-radius: 6px;
+  background: rgba(7, 27, 48, 0.64);
+  padding: 12px 14px;
+}
+.side-label {
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #6f9cbf;
+}
+.next-card {
+  border-color: rgba(80, 230, 180, 0.3);
+  background: linear-gradient(160deg, rgba(12, 72, 70, 0.45), rgba(7, 27, 48, 0.65));
+}
+.next-train {
+  font-family: Consolas, "DIN Alternate", monospace;
+  font-size: clamp(28px, 3vw, 46px);
+  font-weight: 800;
+  color: #7ee7c3;
+  text-shadow: 0 0 16px rgba(80, 230, 180, 0.35);
+}
+.next-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #b5d7d0;
+}
+.stat-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(84, 146, 200, 0.12);
+  font-size: 13px;
+  color: #a6c1d8;
+}
+.stat-line:last-child {
+  border-bottom: 0;
+}
+.stat-line strong {
+  font-family: Consolas, monospace;
+  font-size: clamp(19px, 1.8vw, 28px);
+  color: #fff;
+}
+.station-select {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid rgba(98, 181, 255, 0.3);
+  border-radius: 4px;
+  background: #081e34;
+  color: #d7ebff;
+  outline: none;
+}
+.side-tip {
+  margin-top: 8px;
+  font-size: 10px;
+  color: #64849f;
+}
+.screen-footer {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 30px;
+  border-top: 1px solid rgba(98, 181, 255, 0.14);
+  font-size: 11px;
+  color: #5e7e99;
+}
+.empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: #7090aa;
+  font-size: 14px;
+}
+@media (max-width: 900px) {
+  .screen-main {
+    grid-template-columns: 1fr;
+    padding: 10px 12px;
+  }
+  .side {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .screen-header {
+    padding: 12px 14px;
+  }
+  .announcement,
+  .screen-footer {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}

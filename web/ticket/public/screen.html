@@ -1,0 +1,89 @@
+<!--
+  ══════════════════════════════════════════════════════
+    清 江 铁 路  1 2 3 0 6    QINGJIANG RAILWAY
+    版权所有，仿冒必究    All Rights Reserved
+  ══════════════════════════════════════════════════════
+-->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>清江铁路 · 候车大屏</title>
+    <link rel="stylesheet" href="/screen.css?v=20261117rt1" />
+  </head>
+  <body>
+    <div class="screen">
+      <header class="screen-header">
+        <div class="brand">
+          <div class="brand-mark">清江铁路</div>
+          <div class="brand-sub">QINGJIANG RAILWAY · 候车信息</div>
+        </div>
+        <div class="header-center">
+          <span class="station-name" id="stationName">候车大厅</span>
+          <span class="station-code" id="stationCode"></span>
+        </div>
+        <div class="header-right">
+          <div class="clock" id="clock">--:--:--</div>
+          <div class="date" id="dateText"></div>
+        </div>
+      </header>
+
+      <div class="announcement">
+        <span class="announcement-label">公告</span>
+        <div class="announcement-text" id="announcement">欢迎使用清江铁路12306</div>
+        <div class="live-dot"><span></span>实时更新</div>
+      </div>
+
+      <main class="screen-main">
+        <section class="board">
+          <div class="board-title">
+            <span>今日列车 · 候车与检票</span>
+            <span class="board-hint" id="boardHint"></span>
+          </div>
+          <div class="table-head">
+            <span>车次</span>
+            <span>终到站</span>
+            <span>开点</span>
+            <span>检票口</span>
+            <span>站台</span>
+            <span>地标</span>
+            <span>状态</span>
+            <span>已检 / 人数</span>
+          </div>
+          <div class="train-list" id="trainList">
+            <div class="empty">正在读取候车信息…</div>
+          </div>
+        </section>
+
+        <aside class="side">
+          <div class="side-card next-card">
+            <div class="side-label">下一趟开检</div>
+            <div class="next-train" id="nextTrain">--</div>
+            <div class="next-meta" id="nextMeta">暂无开检计划</div>
+          </div>
+
+          <div class="side-card stats-card">
+            <div class="side-label">本站今日</div>
+            <div class="stat-line"><span>候车人数</span><strong id="statPassengers">0</strong></div>
+            <div class="stat-line"><span>已检人数</span><strong id="statChecked">0</strong></div>
+            <div class="stat-line"><span>检票完成率</span><strong id="statRate">0%</strong></div>
+            <div class="stat-line"><span>在线闸机</span><strong id="statDevices">0</strong></div>
+          </div>
+
+          <div class="side-card station-card">
+            <div class="side-label">切换车站</div>
+            <select id="stationSelect" class="station-select"></select>
+            <div class="side-tip">大屏地址：/screen.html</div>
+          </div>
+        </aside>
+      </main>
+
+      <footer class="screen-footer">
+        <span id="footerCopyright">© 2026 清江铁路</span>
+        <span id="footerIcp"></span>
+      </footer>
+    </div>
+    <script src="/screen.js?v=20261117rt1"></script>
+  </body>
+</html>

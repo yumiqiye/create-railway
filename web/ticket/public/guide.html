@@ -1,0 +1,64 @@
+<!--
+  ══════════════════════════════════════════════════════
+    清 江 铁 路  1 2 3 0 6    QINGJIANG RAILWAY
+    版权所有，仿冒必究    All Rights Reserved
+  ══════════════════════════════════════════════════════
+-->
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>清江铁路 · 检票口引导屏</title>
+    <link rel="stylesheet" href="/guide.css?v=20261118gd1" />
+  </head>
+  <body>
+    <div class="guide">
+      <header class="guide-header">
+        <div class="brand">
+          <div class="brand-mark">清江铁路</div>
+          <div class="brand-sub">QINGJIANG RAILWAY · 检票口引导</div>
+        </div>
+        <div class="header-center">
+          <span class="station-name" id="stationName">车站</span>
+          <span class="station-code" id="stationCode"></span>
+        </div>
+        <div class="header-right">
+          <div class="clock" id="clock">--:--:--</div>
+          <div class="date" id="dateText"></div>
+        </div>
+      </header>
+
+      <div class="guide-bar">
+        <div class="guide-title">请按车次到对应检票口候车</div>
+        <div class="guide-meta">
+          <span id="dateHint"></span>
+          <span class="live-dot"><span></span>实时更新</span>
+        </div>
+      </div>
+
+      <main class="guide-main">
+        <div class="guide-head">
+          <span>车次</span>
+          <span>终到站</span>
+          <span>开点</span>
+          <span>检票口</span>
+          <span>站台</span>
+          <span>状态</span>
+        </div>
+        <div class="guide-list" id="guideList">
+          <div class="empty">正在读取检票口信息…</div>
+        </div>
+      </main>
+
+      <footer class="guide-footer">
+        <div class="station-picker">
+          <span>切换车站</span>
+          <select id="stationSelect"></select>
+        </div>
+        <div class="footer-text" id="footerText">© 2026 清江铁路</div>
+      </footer>
+    </div>
+    <script src="/guide.js?v=20261118gd1"></script>
+  </body>
+</html>

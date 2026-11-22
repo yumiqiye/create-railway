@@ -1,0 +1,10 @@
+{
+  "item.hexie_railway.id_card": "居民身份证",
+  "item.hexie_railway.reimbursement": "报销凭证",
+  "item.hexie_railway.railway_ticket": "铁路电子客票",
+  "item.hexie_railway.pos": "手持 POS",
+  "item.hexie_railway.manual_checker": "人工检票机",
+  "block.hexie_railway.computer": "铁路电脑",
+  "block.hexie_railway.guide_screen": "车站引导屏",
+  "itemGroup.hexie_railway.railway": "清江铁路"
+}
