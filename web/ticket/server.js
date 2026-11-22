@@ -1183,22 +1183,33 @@ function railwayQuoteFare(db, fromStationId, toStationId) {
   return railwaySegmentFare(db, fromStationId, toStationId);
 }
 
+/** 席别倍率：以二等座为基准，一等座 ×1.5，商务座 ×2。 */
+function railwaySeatMultiplier(seatType) {
+  const type = String(seatType || '').trim();
+  if (type === '商务座') return 2;
+  if (type === '一等座') return 1.5;
+  return 1;
+}
+
 /**
  * 沿车次经停顺序累加分段票价：A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价。
- * 这是网页、POS、游戏内支付的统一成交价。
+ * 基准价是二等座，再按席别倍率换算；这是网页、POS、游戏内支付的统一成交价。
  */
-function railwayRouteFare(db, train, fromStationId, toStationId) {
+function railwayRouteFare(db, train, fromStationId, toStationId, seatType) {
   const stops = trainStops(db, train);
   let fromIndex = stops.findIndex((s) => s.stationId === fromStationId);
   let toIndex = stops.findIndex((s) => s.stationId === toStationId);
+  let base;
   // 列车反向运行时，按停站表倒序累加。
   if (fromIndex >= 0 && toIndex >= 0 && toIndex < fromIndex) {
     const reversed = stops.slice().reverse();
     fromIndex = reversed.findIndex((s) => s.stationId === fromStationId);
     toIndex = reversed.findIndex((s) => s.stationId === toStationId);
-    return railwayRouteFareByStops(db, reversed, fromIndex, toIndex);
+    base = railwayRouteFareByStops(db, reversed, fromIndex, toIndex);
+  } else {
+    base = railwayRouteFareByStops(db, stops, fromIndex, toIndex);
   }
-  return railwayRouteFareByStops(db, stops, fromIndex, toIndex);
+  return Math.max(0, Math.round(base * railwaySeatMultiplier(seatType)));
 }
 
 function railwayRouteFareByStops(db, stops, fromIndex, toIndex) {
@@ -1842,6 +1853,15 @@ async function route(req, res, pathname, query) {
           if (!destination || destination.stationId === station.id) return;
           const view = trainView(db, train, today);
           const check = railwayCheckinState(db, train, today, station.name);
+          const seatViews = (train.seats || []).map((seat) => {
+            const availability = (view.seats || []).find((s) => s.type === seat.type);
+            return {
+              type: seat.type,
+              price: railwayRouteFare(db, train, station.id, destination.stationId, seat.type),
+              remaining: Number(availability ? availability.remaining : 0),
+            };
+          });
+          const displaySeat = seatViews.find((s) => s.type === '二等座') || seatViews[0];
           trains.push({
             trainId: train.id,
             trainNo: train.trainNo,
@@ -1850,7 +1870,8 @@ async function route(req, res, pathname, query) {
             toStationName: destination.name,
             departTime: check.departTime || train.departTime,
             arriveTime: train.arriveTime,
-            price: railwayRouteFare(db, train, station.id, destination.stationId),
+            price: displaySeat ? displaySeat.price : railwayRouteFare(db, train, station.id, destination.stationId, '二等座'),
+            seats: seatViews,
             currency: brand.currency,
             remaining: Number(view.totalRemaining || 0),
             checkinOpen: check.open,
@@ -1888,9 +1909,15 @@ async function route(req, res, pathname, query) {
         railwayStationByName(db, body.toStationName) ||
         stops[stops.length - 1];
       if (!destination || destination.stationId === station.id) return fail(res, 400, '到达车站无效');
-      const seat = (train.seats || [])[0] || {};
-      // 成交价按经停顺序累加分段票价，不信任前端传入的 price。
-      const price = railwayRouteFare(db, train, station.id, destination.stationId);
+      const requestedSeatType = String(body.seatType || '').trim();
+      const seatList = Array.isArray(train.seats) ? train.seats : [];
+      const seat = (requestedSeatType
+        ? seatList.find((s) => s.type === requestedSeatType)
+        : seatList.find((s) => s.type === '二等座') || seatList[0]) || {};
+      if (requestedSeatType && seatList.length && !seat) return fail(res, 400, '该车次没有此席别');
+      const seatType = seat.type || requestedSeatType || '二等座';
+      // 成交价按经停顺序累加分段票价，再按席别倍率换算；不信任前端传入的 price。
+      const price = railwayRouteFare(db, train, station.id, destination.stationId, seatType);
       const passengerName = String(body.passengerName || body.name || '').trim().slice(0, 20);
       const idNo = String(body.idNo || '').trim().slice(0, 32);
       if (!passengerName) return fail(res, 400, '乘车人姓名不能为空');
@@ -1912,7 +1939,7 @@ async function route(req, res, pathname, query) {
         departTime: train.departTime,
         arriveTime: train.arriveTime,
         date,
-        seatType: String(body.seatType || seat.type || '二等座'),
+        seatType,
         price,
         totalPrice: price,
         currency: (db.settings || {}).railwayCurrency || 'emerald',

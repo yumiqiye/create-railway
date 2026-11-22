@@ -198,6 +198,7 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
   3. 计算中心点；
   4. POST `/api/railway/admin/station` 同步后台；
   5. 后台按相邻停靠站自动生成每一段票价；售票时按车次经停顺序累加，A→C 经由 B 时票价 = A-B 段价 + B-C 段价。
+  6. 席别以二等座为基准换算：一等座 = 二等座 × 1.5，商务座 = 二等座 × 2，结果四舍五入取整。
 
 其他：
 
@@ -221,8 +222,12 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
 - 下方显示模组车站中心点、维度、铁路局、闸机/售票机数。
 
 ```
-票价 = clamp(round(中心点距离 × farePerBlock), minFare, maxFare)
+分段票价 = clamp(round(中心点距离 × farePerBlock), minFare, maxFare)
+全程二等座票价 = 各相邻停靠站分段票价之和
+一等座 = round(全程二等座 × 1.5)　商务座 = round(全程二等座 × 2)
 ```
+
+售票机页面按席别显示票价与余票，下单时把席别一并提交；成交价由服务端重算，前端价格不参与结算。
 
 默认 `0.02 / 1 / 64`，货币绿宝石。
 

@@ -8,7 +8,7 @@
   <div>
     <div class="n-layout-page-header">
       <n-card :bordered="false" title="车次管理">
-        维护列车开行方案：车次号、始发/终到车站、时刻表与席别票价、定员。前台按城市区间检索这些车次。
+        维护列车开行方案：车次号、始发/终到车站、时刻表与席别、定员。前台按城市区间检索这些车次。实际票价按经停分段票价累加计算，并按席别换算：一等座 = 二等座 × 1.5，商务座 = 二等座 × 2。
       </n-card>
     </div>
 
@@ -170,11 +170,11 @@
             </div>
           </n-form-item>
 
-          <n-divider title-placement="left">席别与票价</n-divider>
+          <n-divider title-placement="left">席别与定员（票价按分段票价和倍率自动计算）</n-divider>
           <div class="seat-editor">
             <div class="seat-head">
               <span>席别</span>
-              <span>票价（元）</span>
+              <span>参考票价（元）</span>
               <span>定员（张）</span>
               <span></span>
             </div>

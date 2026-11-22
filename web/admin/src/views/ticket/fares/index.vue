@@ -6,7 +6,7 @@
     <div class="n-layout-page-header">
       <n-card :bordered="false" title="票价管理">
         车站通过 <code>/railway admin station &lt;站名&gt; POS1/POS2</code> 划定范围后，系统按相邻停靠站的方块距离生成每一段票价。
-        售票时按车次经停顺序累加，例如 A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价；这里填的分段票价就是游戏内实际收取的金额。
+        售票时按车次经停顺序累加，例如 A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价；这里填的分段票价就是游戏内二等座实际收取的金额。席别按二等座倍率换算：一等座 = 二等座 × 1.5，商务座 = 二等座 × 2（结果四舍五入取整）。
       </n-card>
     </div>
 

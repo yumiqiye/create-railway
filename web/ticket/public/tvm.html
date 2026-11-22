@@ -82,6 +82,7 @@
   <div class="dialog">
     <h2>确认购票</h2>
     <div class="hint" id="buyHint">请填写乘车人信息；出票需要使用本人身份证。</div>
+    <div class="field"><label>席别</label><select id="buySeat"></select></div>
     <div class="field"><label>乘车人姓名</label><input id="buyName" maxlength="20" placeholder="请输入姓名" /></div>
     <div class="field"><label>身份证号</label><input id="buyIdNo" maxlength="32" placeholder="请输入身份证号" /></div>
     <div class="orderbox" id="buySummary"></div>
@@ -219,9 +220,41 @@
     });
   }
 
+  function seatOptionsOf(train) {
+    return Array.isArray(train.seats) && train.seats.length
+      ? train.seats
+      : [{ type: '二等座', price: train.price, remaining: train.remaining }];
+  }
+
+  function selectedSeat() {
+    var train = state.pendingTrain;
+    if (!train) return null;
+    var type = $('buySeat').value;
+    return seatOptionsOf(train).find(function (s) { return s.type === type; }) || null;
+  }
+
+  function updateBuySummary() {
+    var train = state.pendingTrain;
+    if (!train) return;
+    var seat = selectedSeat();
+    $('buySummary').innerHTML =
+      '<div>车次：<b>' + esc(train.trainNo) + '</b>　' + esc(train.fromStationName) + ' → ' + esc(train.toStationName) + '</div>' +
+      '<div>席别：<b>' + esc(seat ? seat.type : '二等座') + '</b>　开车：' + esc(train.departTime) +
+      '　票价：<b style="color:#1c8a4b">' + esc(seat ? seat.price : train.price) + ' 绿宝石</b></div>';
+    $('buyConfirm').disabled = !seat || Number(seat.remaining) <= 0;
+  }
+
   function openBuy(train) {
     if (!train) return;
     state.pendingTrain = train;
+    var seats = seatOptionsOf(train);
+    $('buySeat').innerHTML = seats.map(function (s) {
+      return '<option value="' + esc(s.type) + '"' + (Number(s.remaining) <= 0 ? ' disabled' : '') + '>' +
+        esc(s.type) + '　' + esc(s.price) + ' 绿宝石　余 ' + esc(s.remaining) + ' 张</option>';
+    }).join('');
+    var preferred = seats.find(function (s) { return s.type === '二等座' && Number(s.remaining) > 0; }) ||
+      seats.find(function (s) { return Number(s.remaining) > 0; }) || seats[0];
+    $('buySeat').value = preferred ? preferred.type : '';
     $('buyName').value = presetName || localStorage.getItem('railway.name') || '';
     $('buyIdNo').value = presetIdNo || localStorage.getItem('railway.idNo') || '';
     if (embedded && presetName && presetIdNo) {
@@ -229,9 +262,7 @@
       $('buyIdNo').readOnly = true;
       $('buyHint').textContent = '已从放入售票机的身份证读取乘车人，无需手动填写。';
     }
-    $('buySummary').innerHTML =
-      '<div>车次：<b>' + esc(train.trainNo) + '</b>　' + esc(train.fromStationName) + ' → ' + esc(train.toStationName) + '</div>' +
-      '<div>开车：' + esc(train.departTime) + '　票价：<b style="color:#1c8a4b">' + esc(train.price) + ' 绿宝石</b></div>';
+    updateBuySummary();
     $('buyMask').classList.add('show');
     $('buyName').focus();
   }
@@ -241,6 +272,9 @@
     if (!train) return;
     var name = $('buyName').value.trim();
     var idNo = $('buyIdNo').value.trim();
+    var seat = selectedSeat();
+    if (!seat) return toast('请选择席别');
+    if (Number(seat.remaining) <= 0) return toast('该席别余票不足');
     if (!name) return toast('请填写乘车人姓名');
     if (!idNo) return toast('请填写身份证号');
     localStorage.setItem('railway.name', name);
@@ -253,6 +287,7 @@
         trainId: train.trainId,
         trainNo: train.trainNo,
         stationName: state.station,
+        seatType: seat.type,
         passengerName: name,
         idNo: idNo,
         source: 'machine',
@@ -264,7 +299,7 @@
     }).catch(function (err) {
       toast(err.message);
     }).finally(function () {
-      $('buyConfirm').disabled = false;
+      updateBuySummary();
     });
   }
 
@@ -277,7 +312,7 @@
       '<div>订单号：<b>' + esc(order.orderNo) + '</b></div>' +
       '<div>车次：' + esc(order.trainNo) + '　' + esc(order.fromStationName) + ' → ' + esc(order.toStationName) + '</div>' +
       '<div>日期：' + esc(order.date) + '　开车：' + esc(order.departTime) + '</div>' +
-      '<div>乘车人：' + esc(order.passengerName) + '　票价：<b style="color:#1c8a4b">' + esc(order.price) + ' 绿宝石</b></div>' +
+      '<div>席别：' + esc(order.seat || order.seatType || '二等座') + '　乘车人：' + esc(order.passengerName) + '　票价：<b style="color:#1c8a4b">' + esc(order.price) + ' 绿宝石</b></div>' +
       '<div>状态：' + (order.status === 'paid' ? '已支付' : '待支付') + '</div>';
     $('payCmd').textContent = order.status === 'paid' ? '' : '/railway pay ' + order.orderNo;
     $('payCmd').style.display = order.status === 'paid' ? 'none' : 'block';
@@ -402,6 +437,7 @@
     $('buyHint').textContent = '乘车人信息来自放入售票机的身份证。';
   }
   $('buyConfirm').addEventListener('click', createOrder);
+  $('buySeat').addEventListener('change', updateBuySummary);
   $('copyCmd').addEventListener('click', copyCommand);
   $('printBtn').addEventListener('click', printTicket);
   $('voucherBtn').addEventListener('click', function () {
