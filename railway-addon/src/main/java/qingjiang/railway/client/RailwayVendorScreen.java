@@ -8,7 +8,8 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.MenuAccess;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
@@ -23,8 +24,13 @@ import java.nio.charset.StandardCharsets;
 /**
  * 售票机界面：安装 MCEF 时把 web/tvm.html 真嵌进游戏；
  * 没有 MCEF 时显示引导面板（网页仍可独立访问）。
+ *
+ * <p>这里刻意使用普通 {@link Screen} 而不是 AbstractContainerScreen：
+ * 售票菜单没有任何槽位，而 AbstractContainerScreen 会触发 JEI 的右侧物品面板，
+ * 点右侧时会被 JEI 抢去打开配方界面。普通 Screen 不参与 JEI 的容器覆盖层。</p>
  */
-public class RailwayVendorScreen extends AbstractContainerScreen<RailwayVendorMenu> {
+public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVendorMenu> {
+    private final RailwayVendorMenu menu;
     private String stationName = "";
     private String passengerName = "";
     private String idNo = "";
@@ -41,7 +47,22 @@ public class RailwayVendorScreen extends AbstractContainerScreen<RailwayVendorMe
     private String lastAction = "";
 
     public RailwayVendorScreen(RailwayVendorMenu menu, Inventory inventory, Component title) {
-        super(menu, inventory, title);
+        super(title);
+        this.menu = menu;
+    }
+
+    @Override
+    public RailwayVendorMenu getMenu() {
+        return menu;
+    }
+
+    @Override
+    public void onClose() {
+        if (this.minecraft != null && this.minecraft.player != null) {
+            this.minecraft.player.closeContainer();
+        } else {
+            super.onClose();
+        }
     }
 
     @Override
@@ -108,11 +129,6 @@ public class RailwayVendorScreen extends AbstractContainerScreen<RailwayVendorMe
             return;
         }
         renderFallback(graphics);
-    }
-
-    @Override
-    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        // 售票机界面完全自绘，不需要箱子背景。
     }
 
     /** 直接把 MCEF 的 GL 纹理画到界面上（GuiGraphics 没有裸纹理 ID 的重载）。 */
