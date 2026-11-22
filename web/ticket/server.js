@@ -20,7 +20,7 @@ const { getDB, saveDB, refreshDB, resetDB, DEFAULT_SETTINGS, hashPassword, DB_PA
 const { loadConfig } = require('../shared/config');
 const { makePayload, parsePayload, sign } = require('../shared/ticket-qr');
 const { planTransfers } = require('../shared/transfer-planner');
-const { allocateSeats, bitmapFromOrders } = require('../shared/seat-alloc');
+const { allocateSeats, bitmapFromOrders, labelOf } = require('../shared/seat-alloc');
 const { RateLimiter, TokenBucket } = require('../shared/rate-limit');
 
 const RUN_DIR =
@@ -834,7 +834,11 @@ function calcRefundFee(db, order, train) {
 function passengerPrice(seat, type, settings) {
   if (type === '儿童') {
     const discount = settings && Number.isFinite(Number(settings.childDiscount)) ? Number(settings.childDiscount) : 0.5;
-    return Number((seat.price * discount).toFixed(2));
+    return Math.round(Number((seat.price * discount).toFixed(2)));
+  }
+  if (type === '学生') {
+    const discount = settings && Number.isFinite(Number(settings.studentDiscount)) ? Number(settings.studentDiscount) : 0.75;
+    return Math.round(Number((seat.price * discount).toFixed(2)));
   }
   return Number(seat.price);
 }
@@ -997,17 +1001,37 @@ function quotaOf(db, trainId, date, seatType, fallbackTotal) {
  * 用位图给一笔订单分配座位。
  * 占用位从已支付订单的 seatIndex 重建，保证退票/取消后座位可再次分配。
  */
-function assignSeatsToPassengers(db, train, date, seatType, passengers) {
+function assignSeatsToPassengers(db, train, date, seatType, passengers, preferredSeats) {
   const seat = (train.seats || []).find((s) => s.type === seatType);
   if (!seat) return null;
   const capacity = Math.max(Number(seat.total) || 0, quotaOf(db, train.id, date, seatType, seat.total));
   const bitmap = bitmapFromOrders(db.orders, train.id, date, seatType, capacity);
-  const result = allocateSeats(seatType, capacity, bitmap, passengers.length);
-  if (result.seats.length < passengers.length) {
-    return { error: `该车次 ${seatType} 可用座位不足` };
+  const wanted = Array.isArray(preferredSeats)
+    ? preferredSeats.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v >= 0 && v < capacity)
+    : [];
+  const uniqWanted = [...new Set(wanted)];
+  if (uniqWanted.some((index) => bitmap.has(index))) {
+    return { error: `所选座位已被占用：${uniqWanted.filter((i) => bitmap.has(i)).map((i) => labelOf(seatType, i)).join('、')}` };
   }
+  if (uniqWanted.length > passengers.length) {
+    return { error: '选择的座位数量不能超过乘客人数' };
+  }
+  const picked = uniqWanted.map((index) => ({ index, label: labelOf(seatType, index) }));
+  uniqWanted.forEach((index) => bitmap.set(index));
+  const restCount = passengers.length - picked.length;
+  if (restCount > 0) {
+    const result = allocateSeats(seatType, capacity, bitmap, restCount);
+    if (result.seats.length < restCount) {
+      return { error: `该车次 ${seatType} 可用座位不足` };
+    }
+    picked.push(...result.seats);
+  }
+  const ordered = [
+    ...picked.filter((s) => uniqWanted.includes(s.index)),
+    ...picked.filter((s) => !uniqWanted.includes(s.index)),
+  ];
   passengers.forEach((p, i) => {
-    const assigned = result.seats[i];
+    const assigned = ordered[i];
     p.seatNo = assigned.label;
     p.seatIndex = assigned.index;
   });
@@ -1018,10 +1042,10 @@ function assignSeatsToPassengers(db, train, date, seatType, passengers) {
     db.seatMaps.push(row);
   }
   row.capacity = capacity;
-  row.bits = result.bitmap.toBase64();
-  row.occupied = result.bitmap.count();
+  row.bits = bitmap.toBase64();
+  row.occupied = bitmap.count();
   row.updatedAt = new Date().toISOString();
-  return { seats: result.seats, row };
+  return { seats: ordered, row };
 }
 
 function seatAvailability(db, train, date) {
@@ -1100,6 +1124,12 @@ function railwayAdminOk(db, req) {
   return Boolean(account && account.role === 'admin' && account.enabled !== false);
 }
 
+/** 模组内部接口：支付、打印、补打、退改只允许带共享密钥的模组调用。 */
+function railwayInternalOk(db, req) {
+  const expected = String((db.settings || {}).railwayAdminToken || 'qingjiang-railway-mod');
+  return String(req.headers['x-railway-token'] || '') === expected;
+}
+
 function railwayBrand(db) {
   const s = db.settings || {};
   return {
@@ -1162,19 +1192,19 @@ function computeRailwayFare(db, distance) {
 }
 
 /**
- * 单段票价：优先用后台票价表里填的该段价格；没有记录时按两站中心点距离即时计算。
- * 后台“手动改价”的段价会原样生效，保证网页上填多少、游戏里就收多少。
+ * 单段票价：坐标优先。两站都有中心点时一律按方块距离计算；
+ * 只有缺少坐标时才回退到后台手填价，保证“价格优先按照坐标”。
  */
 function railwaySegmentFare(db, fromStationId, toStationId) {
-  const fare = railwayFindFare(db, fromStationId, toStationId);
-  if (fare && (fare.custom || Number(fare.price) > 0)) {
-    return Math.max(0, Number(fare.price));
-  }
   const from = findStation(db, fromStationId);
   const to = findStation(db, toStationId);
   const distance = railwayDistance(from, to);
   if (distance > 0) return computeRailwayFare(db, distance);
-  if (fare) return Math.max(0, Number(fare.price) || Number(fare.autoPrice) || 0);
+  const fare = railwayFindFare(db, fromStationId, toStationId);
+  if (fare) {
+    const manual = Number(fare.custom ? fare.price : fare.price || fare.autoPrice || 0);
+    if (manual > 0) return Math.max(0, manual);
+  }
   return Math.max(0, Number((db.settings || {}).minFare || 1));
 }
 
@@ -1193,36 +1223,64 @@ function railwaySeatMultiplier(seatType) {
 
 /**
  * 沿车次经停顺序累加分段票价：A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价。
- * 基准价是二等座，再按席别倍率换算；这是网页、POS、游戏内支付的统一成交价。
+ * 坐标齐全时全部按坐标计算；只要有一段缺坐标，就用该席别的手填全程价按段数比例回退，
+ * 避免长途车缺失坐标时被最低价（1 绿宝石）贱卖。
  */
 function railwayRouteFare(db, train, fromStationId, toStationId, seatType) {
   const stops = trainStops(db, train);
   let fromIndex = stops.findIndex((s) => s.stationId === fromStationId);
   let toIndex = stops.findIndex((s) => s.stationId === toStationId);
-  let base;
+  let quote;
   // 列车反向运行时，按停站表倒序累加。
   if (fromIndex >= 0 && toIndex >= 0 && toIndex < fromIndex) {
     const reversed = stops.slice().reverse();
     fromIndex = reversed.findIndex((s) => s.stationId === fromStationId);
     toIndex = reversed.findIndex((s) => s.stationId === toStationId);
-    base = railwayRouteFareByStops(db, reversed, fromIndex, toIndex);
+    quote = railwayRouteQuoteByStops(db, reversed, fromIndex, toIndex);
   } else {
-    base = railwayRouteFareByStops(db, stops, fromIndex, toIndex);
+    quote = railwayRouteQuoteByStops(db, stops, fromIndex, toIndex);
   }
-  return Math.max(0, Math.round(base * railwaySeatMultiplier(seatType)));
+  let base = quote.base;
+  if (quote.missingCoordinate) {
+    const seatList = Array.isArray(train.seats) ? train.seats : [];
+    const manualBase =
+      seatList.find((s) => s.type === '二等座') ||
+      seatList.find((s) => s.type === String(seatType || '').trim());
+    const manualPrice = Number(manualBase && manualBase.price);
+    if (manualPrice > 0) {
+      const segmentCount = Math.max(1, quote.segmentCount);
+      const totalSegments = Math.max(1, quote.totalSegments);
+      base = manualPrice * Math.min(1, segmentCount / totalSegments);
+    }
+  }
+  return Math.max(0, Math.round(Math.round(base) * railwaySeatMultiplier(seatType)));
 }
 
-function railwayRouteFareByStops(db, stops, fromIndex, toIndex) {
+function railwayRouteQuoteByStops(db, stops, fromIndex, toIndex) {
+  const totalSegments = Math.max(0, stops.length - 1);
   if (fromIndex < 0 || toIndex < 0 || toIndex <= fromIndex) {
-    return fromIndex >= 0 && toIndex >= 0
-      ? railwaySegmentFare(db, stops[fromIndex].stationId, stops[toIndex].stationId)
-      : 0;
+    const base =
+      fromIndex >= 0 && toIndex >= 0
+        ? railwaySegmentFare(db, stops[fromIndex].stationId, stops[toIndex].stationId)
+        : 0;
+    return { base, missingCoordinate: false, segmentCount: 1, totalSegments };
   }
-  let total = 0;
+  let base = 0;
+  let missingCoordinate = false;
   for (let i = fromIndex; i < toIndex; i += 1) {
-    total += railwaySegmentFare(db, stops[i].stationId, stops[i + 1].stationId);
+    const a = stops[i].stationId;
+    const b = stops[i + 1].stationId;
+    const from = findStation(db, a);
+    const to = findStation(db, b);
+    if (!railwayHasCenter(from) || !railwayHasCenter(to)) missingCoordinate = true;
+    base += railwaySegmentFare(db, a, b);
   }
-  return Math.round(total * 100) / 100;
+  return {
+    base: Math.round(base * 100) / 100,
+    missingCoordinate,
+    segmentCount: toIndex - fromIndex,
+    totalSegments,
+  };
 }
 
 /** 按当前每格系数重算所有“未手动改价”的票价；手动票价保留。 */
@@ -1358,11 +1416,27 @@ function railwayOrderJson(db, order) {
     coach: passenger.coach || '',
     gateInfo: from && (from.gates || []).length ? `1-${(from.gates || []).length}检票口` : '',
     passengerName: passenger.name || order.contactName || '',
+    passengerType: passenger.type || '成人',
     idNo: passenger.idNo || '',
+    passengerCount: (order.passengers || []).length || 1,
+    passengers: (order.passengers || []).map((p) => ({
+      name: p.name || '',
+      idNo: p.idNo || '',
+      type: p.type || '成人',
+      price: Number(p.price || 0),
+      seatNo: p.seatNo || '',
+      seatIndex: Number.isInteger(p.seatIndex) ? p.seatIndex : undefined,
+      coach: p.coach || '',
+    })),
+    tripGroup: order.tripGroup || '',
     coupon: order.coupon || 'ticket',
     checkedIn: Boolean(order.checkedIn || (passenger && passenger.checkedIn)),
     printed: Boolean(order.printed),
     printCount: Number(order.printCount || 0),
+    voucherPrinted: Boolean(order.voucherPrinted),
+    voucherPrintCount: Number(order.voucherPrintCount || 0),
+    itineraryPrinted: Boolean(order.itineraryPrinted),
+    itineraryPrintCount: Number(order.itineraryPrintCount || 0),
     paidBy: order.paidBy || '',
     paidCurrency: order.paidCurrency || '',
     checkinMinutes,
@@ -1838,6 +1912,37 @@ async function route(req, res, pathname, query) {
       );
     }
 
+    /* 票价试算：坐标优先的分段累加 + 席别倍率，供售票机/前端核对价格 */
+    if (second === 'quote' && method === 'GET') {
+      const train =
+        (db.trains || []).find((t) => t.id === String(query.trainId || '')) ||
+        (db.trains || []).find((t) => t.trainNo === String(query.trainNo || '').trim().toUpperCase());
+      if (!train) return fail(res, 404, '车次不存在');
+      const from = railwayStationByName(db, query.fromStationName) || findStation(db, train.fromStationId);
+      const to = railwayStationByName(db, query.toStationName) || findStation(db, train.toStationId);
+      if (!from || !to) return fail(res, 400, '起终站无效');
+      const seatTypes = (train.seats || []).map((s) => s.type);
+      if (query.seatType && !seatTypes.includes(String(query.seatType).trim())) {
+        return fail(res, 400, '该车次没有此席别');
+      }
+      const seats = seatTypes.map((type) => ({
+        type,
+        price: railwayRouteFare(db, train, from.id, to.id, type),
+      }));
+      const basePrice = railwayRouteFare(db, train, from.id, to.id, '二等座');
+      const selected = query.seatType
+        ? seats.find((s) => s.type === String(query.seatType).trim())
+        : null;
+      return ok(res, {
+        trainNo: train.trainNo,
+        fromStationName: from.name,
+        toStationName: to.name,
+        basePrice,
+        seats,
+        price: selected ? selected.price : basePrice,
+      });
+    }
+
     /* 售票机引导页数据：公告 + 本站可售车次 + 开检状态 */
     if (second === 'tvm' && third === 'bootstrap' && method === 'GET') {
       const brand = railwayBrand(db);
@@ -1872,6 +1977,7 @@ async function route(req, res, pathname, query) {
             arriveTime: train.arriveTime,
             price: displaySeat ? displaySeat.price : railwayRouteFare(db, train, station.id, destination.stationId, '二等座'),
             seats: seatViews,
+            stops: stops.map((s) => s.name),
             currency: brand.currency,
             remaining: Number(view.totalRemaining || 0),
             checkinOpen: check.open,
@@ -1885,10 +1991,40 @@ async function route(req, res, pathname, query) {
       return ok(res, {
         ...brand,
         today,
+        childDiscount: (db.settings || {}).childDiscount === undefined ? 0.5 : Number(db.settings.childDiscount),
+        studentDiscount: (db.settings || {}).studentDiscount === undefined ? 0.75 : Number(db.settings.studentDiscount),
+        maxPassengersPerOrder: Math.max(1, Math.min(20, Number((db.settings || {}).maxPassengersPerOrder) || 5)),
         station: station
           ? { id: station.id, name: station.name, code: station.code || '', gateCount: (station.gates || []).length, vendorCount: (station.vendors || []).length }
           : null,
         trains,
+      });
+    }
+
+    /* 售票机选座：返回该车次/日期/席别当前可选座位 */
+    if (second === 'tvm' && third === 'seats' && method === 'GET') {
+      const train =
+        (db.trains || []).find((t) => t.id === String(query.trainId || '')) ||
+        (db.trains || []).find((t) => t.trainNo === String(query.trainNo || '').trim().toUpperCase());
+      if (!train) return fail(res, 404, '车次不存在');
+      const seatType = String(query.seatType || '二等座').trim();
+      const seat = (train.seats || []).find((s) => s.type === seatType);
+      if (!seat) return fail(res, 400, '该车次没有此席别');
+      const date = isValidDate(query.date) ? query.date : todayStr();
+      const capacity = Math.max(Number(seat.total) || 0, quotaOf(db, train.id, date, seatType, seat.total));
+      const bitmap = bitmapFromOrders(db.orders, train.id, date, seatType, capacity);
+      const list = [];
+      for (let index = 0; index < capacity && list.length < 300; index += 1) {
+        if (!bitmap.has(index)) list.push({ index, label: labelOf(seatType, index) });
+      }
+      return ok(res, {
+        trainId: train.id,
+        trainNo: train.trainNo,
+        date,
+        seatType,
+        capacity,
+        available: list.length,
+        seats: list,
       });
     }
 
@@ -1900,15 +2036,23 @@ async function route(req, res, pathname, query) {
         (db.trains || []).find((t) => t.trainNo === String(body.trainNo || '').trim().toUpperCase());
       if (!train) return fail(res, 404, '车次不存在');
       const station =
-        railwayStationByName(db, body.stationName) || findStation(db, train.fromStationId);
+        railwayStationByName(db, body.stationName) ||
+        findStation(db, body.fromStationId) ||
+        findStation(db, train.fromStationId);
       if (!station) return fail(res, 400, '出发车站不存在');
       const stops = trainStops(db, train);
       const index = stops.findIndex((s) => s.stationId === station.id);
       if (index < 0) return fail(res, 400, `该车次不经停 ${station.name}`);
       const destination =
         railwayStationByName(db, body.toStationName) ||
+        findStation(db, body.toStationId) ||
         stops[stops.length - 1];
-      if (!destination || destination.stationId === station.id) return fail(res, 400, '到达车站无效');
+      if (!destination || destination.stationId === station.id || destination.id === station.id) {
+        return fail(res, 400, '到达车站无效');
+      }
+      const destinationId = destination.stationId || destination.id;
+      const date = isValidDate(body.date) ? body.date : todayStr();
+      if (date < todayStr()) return fail(res, 400, '乘车日期不能早于今天');
       const requestedSeatType = String(body.seatType || '').trim();
       const seatList = Array.isArray(train.seats) ? train.seats : [];
       const seat = (requestedSeatType
@@ -1917,15 +2061,47 @@ async function route(req, res, pathname, query) {
       if (requestedSeatType && seatList.length && !seat) return fail(res, 400, '该车次没有此席别');
       const seatType = seat.type || requestedSeatType || '二等座';
       // 成交价按经停顺序累加分段票价，再按席别倍率换算；不信任前端传入的 price。
-      const price = railwayRouteFare(db, train, station.id, destination.stationId, seatType);
-      const passengerName = String(body.passengerName || body.name || '').trim().slice(0, 20);
-      const idNo = String(body.idNo || '').trim().slice(0, 32);
-      if (!passengerName) return fail(res, 400, '乘车人姓名不能为空');
-      if (!idNo) return fail(res, 400, '身份证号不能为空');
-      const date = isValidDate(body.date) ? body.date : todayStr();
+      const basePrice = railwayRouteFare(db, train, station.id, destinationId, seatType);
+
+      const settings = db.settings || DEFAULT_SETTINGS;
+      const maxPassengers = Math.max(1, Math.min(20, Number(settings.maxPassengersPerOrder) || 5));
+      const rawPassengers =
+        Array.isArray(body.passengers) && body.passengers.length
+          ? body.passengers
+          : [{
+              name: body.passengerName || body.name,
+              idNo: body.idNo,
+              type: body.passengerType || '成人',
+            }];
+      if (rawPassengers.length > maxPassengers) return fail(res, 400, `单笔最多 ${maxPassengers} 位乘客`);
+      const normalized = [];
+      for (const raw of rawPassengers) {
+        const parsed = normalizePassenger(raw, '', { allowEmptyPhone: true });
+        if (parsed.error) return fail(res, 400, parsed.error);
+        normalized.push(parsed.value);
+      }
+      if (new Set(normalized.map((p) => p.idNo)).size !== normalized.length) {
+        return fail(res, 400, '乘客证件号不能重复');
+      }
+      const priced = normalized.map((p) => ({
+        ...p,
+        price: passengerPrice({ ...seat, price: basePrice }, p.type, settings),
+      }));
+      const preferredSeats = Array.isArray(body.seatIndexes)
+        ? body.seatIndexes
+        : body.seatIndex !== undefined
+          ? [body.seatIndex]
+          : [];
+      const assignment = assignSeatsToPassengers(db, train, date, seatType, priced, preferredSeats);
+      if (assignment && assignment.error) return fail(res, 400, assignment.error);
+      if (!assignment) {
+        const seq = (db.orders || []).length % 30;
+        priced.forEach((p, i) => {
+          p.seatNo = p.seatNo || `${10 + Math.floor((seq + i) / 5)}${['A', 'B', 'C', 'D', 'F'][(seq + i) % 5]}`;
+        });
+      }
+      const totalPrice = priced.reduce((sum, p) => sum + Number(p.price || 0), 0);
       const source = body.source === 'machine' ? 'machine' : 'web';
-      const seq = (db.orders || []).length % 30;
-      const seatNo = body.seatNo || `${10 + Math.floor(seq / 5)}${['A', 'B', 'C', 'D', 'F'][seq % 5]}`;
       const order = {
         id: newId('o'),
         orderNo: genOrderNo(),
@@ -1934,41 +2110,37 @@ async function route(req, res, pathname, query) {
         trainName: `${train.trainNo} ${train.type || ''}`.trim(),
         fromStationId: station.id,
         fromStationName: station.name,
-        toStationId: destination.stationId,
+        toStationId: destinationId,
         toStationName: destination.name,
         departTime: train.departTime,
         arriveTime: train.arriveTime,
         date,
         seatType,
-        price,
-        totalPrice: price,
-        currency: (db.settings || {}).railwayCurrency || 'emerald',
+        price: basePrice,
+        totalPrice,
+        currency: settings.railwayCurrency || 'emerald',
         status: source === 'machine' ? 'paid' : 'pending',
         source,
-        contactName: passengerName,
+        contactName: priced[0].name,
         contactPhone: '',
         paymentDeadline: new Date(Date.now() + 60 * 60000).toISOString(),
-        passengers: [
-          {
-            name: passengerName,
-            idNo,
-            type: '成人',
-            price,
-            seatNo,
-          },
-        ],
+        passengers: priced,
+        tripGroup: String(body.tripGroup || '').slice(0, 40),
         createdAt: new Date().toISOString(),
         checkedIn: false,
         invoiceNo: '',
         printed: false,
         printCount: 0,
+        voucherPrinted: false,
+        voucherPrintCount: 0,
+        itineraryPrintCount: 0,
         coupon: 'ticket',
       };
       if (source === 'machine') {
         order.paidAt = new Date().toISOString();
         order.paymentMethod = 'machine';
         order.paidCurrency = order.currency;
-        order.paidAmount = price;
+        order.paidAmount = totalPrice;
         order.paidBy = '售票机';
       }
       db.orders.push(order);
@@ -1976,10 +2148,10 @@ async function route(req, res, pathname, query) {
       broadcast('order', { orderNo: order.orderNo, status: order.status, source: order.source });
       addLog(db, {
         action: 'railway.order.create',
-        actor: passengerName,
+        actor: priced[0].name,
         role: 'passenger',
         target: order.orderNo,
-        detail: `${train.trainNo} ${station.name}→${destination.name} ${price} 绿宝石（${order.source === 'machine' ? '售票机' : '网页'}）`,
+        detail: `${train.trainNo} ${station.name}→${destination.name} ${priced.length} 人 ${totalPrice} 绿宝石（${order.source === 'machine' ? '售票机' : '网页'}）`,
         level: 'info',
       });
       saveDB();
@@ -2024,9 +2196,23 @@ async function route(req, res, pathname, query) {
           date: full.date,
           departTime: full.departTime,
           price: full.price,
+          seat: full.seat,
+          totalPrice: full.totalPrice,
+          passengerCount: full.passengerCount,
+          passengers: (full.passengers || []).map((p) => ({
+            name: p.name ? p.name.slice(0, 1) + '*'.repeat(Math.max(1, p.name.length - 1)) : '',
+            type: p.type,
+            price: p.price,
+            seatNo: p.seatNo,
+            idNo: p.idNo ? p.idNo.replace(/^(.{4}).*(.{4})$/, '$1**********$2') : '',
+          })),
           currency: full.currency,
           coupon: full.coupon,
           printed: full.printed,
+          printCount: full.printCount,
+          voucherPrinted: full.voucherPrinted,
+          voucherPrintCount: full.voucherPrintCount,
+          itineraryPrintCount: full.itineraryPrintCount,
           checkinStart: full.checkinStart,
         });
       }
@@ -2035,6 +2221,7 @@ async function route(req, res, pathname, query) {
 
     /* 游戏内绿宝石支付回调 */
     if (second === 'orders' && third && fourth === 'pay' && method === 'POST') {
+      if (!railwayInternalOk(db, req)) return fail(res, 401, '缺少内部访问密钥，禁止修改支付状态');
       const order = (db.orders || []).find((o) => o.orderNo === third || o.id === third);
       if (!order) return fail(res, 404, '订单不存在');
       if (order.status === 'paid') return ok(res, { order: railwayOrderJson(db, order) }, '订单已支付，无需重复支付');
@@ -2071,43 +2258,207 @@ async function route(req, res, pathname, query) {
 
     /* 打印车票（模组生成物品后回写打印状态） */
     if (second === 'orders' && third && fourth === 'print' && method === 'POST') {
+      if (!railwayInternalOk(db, req)) return fail(res, 401, '缺少内部访问密钥，禁止回写打印状态');
+      const body = await readBody(req);
+      const kind = String(body.kind || 'ticket').trim();
+      if (!['ticket', 'voucher', 'itinerary'].includes(kind)) return fail(res, 400, '不支持的打印类型');
       const order = (db.orders || []).find((o) => o.orderNo === third || o.id === third);
       if (!order) return fail(res, 404, '订单不存在');
-      if (order.status !== 'paid') return fail(res, 400, '订单未支付，不能打印车票');
-      if (order.printed) return fail(res, 400, '该订单已打印过车票');
-      order.printed = true;
-      order.printCount = Number(order.printCount || 0) + 1;
-      order.printedAt = new Date().toISOString();
+      if (order.status !== 'paid') return fail(res, 400, '订单未支付，不能打印');
+      let label;
+      if (kind === 'voucher') {
+        order.voucherPrinted = true;
+        order.voucherPrintCount = Number(order.voucherPrintCount || 0) + 1;
+        order.lastVoucherPrintAt = new Date().toISOString();
+        label = '报销凭证';
+      } else if (kind === 'itinerary') {
+        order.itineraryPrinted = true;
+        order.itineraryPrintCount = Number(order.itineraryPrintCount || 0) + 1;
+        order.lastItineraryPrintAt = new Date().toISOString();
+        label = '行程信息单';
+      } else {
+        if (order.printed) return fail(res, 400, '该订单已打印过车票，请使用补打接口');
+        order.printed = true;
+        order.printCount = Number(order.printCount || 0) + 1;
+        order.printedAt = new Date().toISOString();
+        label = '车票';
+      }
       saveDB();
       addLog(db, {
-        action: 'railway.ticket.print',
+        action: `railway.ticket.print.${kind}`,
         actor: 'player',
         role: 'passenger',
         target: order.orderNo,
-        detail: `打印车票 ${order.trainNo} ${order.fromStationName}→${order.toStationName}`,
+        detail: `打印${label} ${order.trainNo} ${order.fromStationName}→${order.toStationName}`,
         level: 'info',
       });
-      return ok(res, { order: railwayOrderJson(db, order) }, '车票已打印');
+      return ok(res, { order: railwayOrderJson(db, order) }, `${label}已打印`);
     }
 
-    /* 补打车票：已支付订单可重复补打，累加打印次数并记录日志 */
+    /* 补打车票 / 报销凭证 / 行程信息单：分别累计打印次数 */
     if (second === 'orders' && third && fourth === 'reprint' && method === 'POST') {
+      if (!railwayInternalOk(db, req)) return fail(res, 401, '缺少内部访问密钥，禁止补打凭证');
+      const body = await readBody(req);
+      const kind = String(body.kind || 'ticket').trim();
+      if (!['ticket', 'voucher', 'itinerary'].includes(kind)) return fail(res, 400, '不支持的补打类型');
       const order = (db.orders || []).find((o) => o.orderNo === third || o.id === third);
       if (!order) return fail(res, 404, '订单不存在');
-      if (order.status !== 'paid') return fail(res, 400, '订单未支付，不能补打车票');
-      order.printed = true;
-      order.printCount = Number(order.printCount || 0) + 1;
-      order.lastReprintAt = new Date().toISOString();
+      if (order.status !== 'paid') return fail(res, 400, '订单未支付，不能补打');
+      let count;
+      let label;
+      if (kind === 'voucher') {
+        order.voucherPrinted = true;
+        order.voucherPrintCount = Number(order.voucherPrintCount || 0) + 1;
+        order.lastVoucherPrintAt = new Date().toISOString();
+        count = order.voucherPrintCount;
+        label = '报销凭证';
+      } else if (kind === 'itinerary') {
+        order.itineraryPrinted = true;
+        order.itineraryPrintCount = Number(order.itineraryPrintCount || 0) + 1;
+        order.lastItineraryPrintAt = new Date().toISOString();
+        count = order.itineraryPrintCount;
+        label = '行程信息单';
+      } else {
+        order.printed = true;
+        order.printCount = Number(order.printCount || 0) + 1;
+        order.lastReprintAt = new Date().toISOString();
+        count = order.printCount;
+        label = '车票';
+      }
       saveDB();
       addLog(db, {
-        action: 'railway.ticket.reprint',
+        action: `railway.ticket.reprint.${kind}`,
         actor: 'player',
         role: 'passenger',
         target: order.orderNo,
-        detail: `补打车票（第 ${order.printCount} 次）${order.trainNo} ${order.fromStationName}→${order.toStationName}`,
+        detail: `补打${label}（第 ${count} 次）${order.trainNo} ${order.fromStationName}→${order.toStationName}`,
         level: 'info',
       });
-      return ok(res, { order: railwayOrderJson(db, order) }, `第 ${order.printCount} 次打印，车票已补打`);
+      return ok(res, { order: railwayOrderJson(db, order) }, `第 ${count} 次打印，${label}已补打`);
+    }
+
+    /* 退票：按发车前时间计算手续费，实际退款由模组在游戏内发放 */
+    if (second === 'orders' && third && fourth === 'refund' && method === 'POST') {
+      if (!railwayInternalOk(db, req)) return fail(res, 401, '缺少内部访问密钥，禁止退票');
+      const order = (db.orders || []).find((o) => o.orderNo === third || o.id === third);
+      if (!order) return fail(res, 404, '订单不存在');
+      if (order.status !== 'paid') return fail(res, 400, '只有已支付订单才能退票');
+      const settings = db.settings || DEFAULT_SETTINGS;
+      if (settings.refundEnabled === false) return fail(res, 400, '当前未开启退票');
+      const train = (db.trains || []).find((t) => t.id === order.trainId);
+      const result = calcRefundFee(db, order, train);
+      if (result.error) return fail(res, 400, result.error);
+      order.status = 'refunded';
+      order.refundedAt = new Date().toISOString();
+      order.refundFee = result.fee;
+      order.refundAmount = result.refundAmount;
+      order.refundHoursBefore = result.hoursBefore;
+      order.refundPolicyRate = result.feeRate;
+      order.seatHolding = false;
+      order.updatedAt = order.refundedAt;
+      saveDB();
+      broadcast('order', { orderNo: order.orderNo, status: order.status, source: order.source });
+      addLog(db, {
+        action: 'railway.ticket.refund',
+        actor: 'player',
+        role: 'passenger',
+        target: order.orderNo,
+        detail: `退票 ${order.trainNo}，手续费 ${result.fee}，退款 ${result.refundAmount}`,
+        level: 'info',
+      });
+      return ok(
+        res,
+        { order: railwayOrderJson(db, order), refundAmount: result.refundAmount, fee: result.fee, feeRate: result.feeRate, hoursBefore: result.hoursBefore },
+        `退票成功，手续费 ${result.fee}，退款 ${result.refundAmount}`
+      );
+    }
+
+    /* 改签：换车次/日期/席别，按新票价重新计算补退差额 */
+    if (second === 'orders' && third && fourth === 'change' && method === 'POST') {
+      if (!railwayInternalOk(db, req)) return fail(res, 401, '缺少内部访问密钥，禁止改签');
+      const order = (db.orders || []).find((o) => o.orderNo === third || o.id === third);
+      if (!order) return fail(res, 404, '订单不存在');
+      if (order.status !== 'paid') return fail(res, 400, '只有已支付订单才能改签');
+      if (order.checkedIn) return fail(res, 400, '已检票，不能改签');
+      const body = await readBody(req);
+      const newTrain =
+        (db.trains || []).find((t) => t.id === String(body.trainId || '')) ||
+        (db.trains || []).find((t) => t.trainNo === String(body.trainNo || '').trim().toUpperCase());
+      if (!newTrain) return fail(res, 404, '新车次不存在');
+      const newDate = isValidDate(body.date) ? body.date : order.date;
+      if (newDate < todayStr()) return fail(res, 400, '改签日期不能早于今天');
+      const newSeatType = String(body.seatType || order.seatType || '二等座').trim();
+      const newSeat = (newTrain.seats || []).find((s) => s.type === newSeatType);
+      if (!newSeat) return fail(res, 400, '新车次没有此席别');
+      const fromStation = findStation(db, order.fromStationId) || findStation(db, newTrain.fromStationId);
+      const toStation = findStation(db, order.toStationId) || findStation(db, newTrain.toStationId);
+      if (!fromStation || !toStation) return fail(res, 400, '原订单起终站无效');
+      const newBasePrice = railwayRouteFare(db, newTrain, fromStation.id, toStation.id, newSeatType);
+      const newPassengers = (order.passengers || []).map((p) => ({
+        ...p,
+        price: passengerPrice({ ...newSeat, price: newBasePrice }, p.type || '成人', db.settings || DEFAULT_SETTINGS),
+        seatNo: '',
+        seatIndex: undefined,
+      }));
+      const newTotal = newPassengers.reduce((sum, p) => sum + Number(p.price || 0), 0);
+      const diff = Number((newTotal - Number(order.totalPrice || 0)).toFixed(2));
+      const changeFeeRate = Number((db.settings || {}).changeFeeRate) || 0;
+      const changeFee = diff > 0 ? Math.round(diff * changeFeeRate) : 0;
+      const needPay = Math.max(0, diff + changeFee);
+      const refund = Math.max(0, -diff);
+      if (body.dryRun) {
+        const remaining = quotaOf(db, newTrain.id, newDate, newSeatType, newSeat.total) - soldCount(db, newTrain.id, newDate, newSeatType);
+        return ok(res, {
+          trainNo: newTrain.trainNo,
+          date: newDate,
+          seatType: newSeatType,
+          totalPrice: newTotal,
+          diff,
+          changeFee,
+          needPay,
+          refund,
+          remaining: Math.max(0, remaining),
+        }, '改签报价');
+      }
+      const assignment = assignSeatsToPassengers(db, newTrain, newDate, newSeatType, newPassengers);
+      if (assignment && assignment.error) return fail(res, 400, assignment.error);
+      const old = {
+        trainNo: order.trainNo,
+        date: order.date,
+        seatType: order.seatType,
+        totalPrice: order.totalPrice,
+        changedAt: new Date().toISOString(),
+      };
+      order.trainId = newTrain.id;
+      order.trainNo = newTrain.trainNo;
+      order.trainName = `${newTrain.trainNo} ${newTrain.type || ''}`.trim();
+      order.date = newDate;
+      order.departTime = newTrain.departTime;
+      order.arriveTime = newTrain.arriveTime;
+      order.seatType = newSeatType;
+      order.price = newBasePrice;
+      order.totalPrice = newTotal;
+      order.passengers = newPassengers;
+      order.checkedIn = false;
+      order.printed = false;
+      order.printCount = 0;
+      order.changeFee = Number(((order.changeFee || 0) + changeFee).toFixed(2));
+      order.changes = [...(order.changes || []), old];
+      order.updatedAt = new Date().toISOString();
+      saveDB();
+      addLog(db, {
+        action: 'railway.ticket.change',
+        actor: 'player',
+        role: 'passenger',
+        target: order.orderNo,
+        detail: `改签 ${old.trainNo}→${newTrain.trainNo}，补差 ${needPay}，退款 ${refund}`,
+        level: 'info',
+      });
+      return ok(
+        res,
+        { order: railwayOrderJson(db, order), needPay, refund, diff, changeFee },
+        needPay > 0 ? `改签成功，需补 ${needPay}` : `改签成功${refund > 0 ? `，应退 ${refund}` : ''}`
+      );
     }
 
     /* 闸机进站/检票回写：把乘车人标记为已检票 */
@@ -3024,6 +3375,11 @@ async function route(req, res, pathname, query) {
         if (!Number.isFinite(v) || v <= 0 || v > 1) return fail(res, 400, '儿童票折扣需在 0~1 之间');
         next.childDiscount = v;
       }
+      if (body.studentDiscount !== undefined) {
+        const v = Number(body.studentDiscount);
+        if (!Number.isFinite(v) || v <= 0 || v > 1) return fail(res, 400, '学生票折扣需在 0~1 之间');
+        next.studentDiscount = v;
+      }
       if (body.checkinMinutes !== undefined) {
         const v = Number(body.checkinMinutes);
         if (!Number.isInteger(v) || v < 5 || v > 120) return fail(res, 400, '开检提前分钟数需为 5~120 的整数');
@@ -3712,6 +4068,11 @@ async function route(req, res, pathname, query) {
       if (runtime.status === 'maintenance') return fail(res, 400, '该车次暂停检票，暂停售票');
       const seat = (train.seats || []).find((s) => s.type === body.seatType);
       if (!seat) return fail(res, 400, '该车次没有此席别');
+      const fromStation = findStation(db, body.fromStationId) || findStation(db, train.fromStationId);
+      const toStation = findStation(db, body.toStationId) || findStation(db, train.toStationId);
+      if (!fromStation || !toStation) return fail(res, 400, '车次起终站配置无效');
+      // 窗口/代售与售票机统一按分段票价 + 席别倍率收费。
+      const basePrice = railwayRouteFare(db, train, fromStation.id, toStation.id, seat.type);
       const presaleDays = (db.settings && db.settings.presaleDays) || 30;
       const latest = new Date();
       latest.setDate(latest.getDate() + presaleDays);
@@ -3733,7 +4094,7 @@ async function route(req, res, pathname, query) {
       const remaining = quotaOf(db, train.id, date, seat.type, seat.total) - soldCount(db, train.id, date, seat.type);
       if (remaining < normalized.length) return fail(res, 400, `余票不足，${seat.type}仅剩 ${Math.max(0, remaining)} 张`);
       const settings = db.settings || DEFAULT_SETTINGS;
-      const priced = normalized.map((p) => ({ ...p, price: passengerPrice(seat, p.type, settings) }));
+      const priced = normalized.map((p) => ({ ...p, price: passengerPrice({ ...seat, price: basePrice }, p.type, settings) }));
       const seatResult = assignSeatsToPassengers(db, train, date, seat.type, priced);
       if (seatResult && seatResult.error) return fail(res, 400, seatResult.error);
       const totalPrice = Number(priced.reduce((s, p) => s + p.price, 0).toFixed(2));
@@ -3746,7 +4107,7 @@ async function route(req, res, pathname, query) {
         trainNo: train.trainNo,
         date,
         seatType: seat.type,
-        price: seat.price,
+        price: basePrice,
         totalPrice,
         status: 'paid',
         contactPhone,
@@ -3960,6 +4321,7 @@ async function route(req, res, pathname, query) {
         refundEnabled: s.refundEnabled,
         servicePhone: s.servicePhone,
         childDiscount: s.childDiscount,
+        studentDiscount: s.studentDiscount === undefined ? 0.75 : s.studentDiscount,
         changeFeeRate: s.changeFeeRate,
         refundRules: s.refundRules,
         checkinMinutes: s.checkinMinutes,
@@ -4176,9 +4538,10 @@ async function route(req, res, pathname, query) {
       if (remaining < count) return fail(res, 400, `余票不足，${seatType}仅剩 ${Math.max(0, remaining)} 张`);
 
       const settings = db.settings || DEFAULT_SETTINGS;
+      const changeBasePrice = railwayRouteFare(db, train, train.fromStationId, train.toStationId, seatType);
       const newPassengers = (order.passengers || []).map((p) => ({
         ...p,
-        price: passengerPrice(seat, p.type || '成人', settings),
+        price: passengerPrice({ ...seat, price: changeBasePrice }, p.type || '成人', settings),
       }));
       const newTotal = Number(newPassengers.reduce((sum, p) => sum + p.price, 0).toFixed(2));
       const diff = Number((newTotal - (order.totalPrice || 0)).toFixed(2));
@@ -4198,7 +4561,7 @@ async function route(req, res, pathname, query) {
       order.trainNo = train.trainNo;
       order.date = date;
       order.seatType = seatType;
-      order.price = seat.price;
+      order.price = changeBasePrice;
       order.totalPrice = newTotal;
       order.passengers = newPassengers;
       order.checkedIn = false;
@@ -4268,7 +4631,8 @@ async function route(req, res, pathname, query) {
         return fail(res, 400, `余票不足，${seatType}仅剩 ${Math.max(0, remaining)} 张`);
 
       const settings = db.settings || DEFAULT_SETTINGS;
-      const priced = normalized.map((p) => ({ ...p, price: passengerPrice(seat, p.type, settings) }));
+      const webBasePrice = railwayRouteFare(db, train, train.fromStationId, train.toStationId, seatType);
+      const priced = normalized.map((p) => ({ ...p, price: passengerPrice({ ...seat, price: webBasePrice }, p.type, settings) }));
       const seatResult = assignSeatsToPassengers(db, train, date, seatType, priced);
       if (seatResult && seatResult.error) return fail(res, 400, seatResult.error);
       const totalPrice = Number(priced.reduce((sum, p) => sum + p.price, 0).toFixed(2));
@@ -4281,7 +4645,7 @@ async function route(req, res, pathname, query) {
         trainNo: train.trainNo,
         date,
         seatType,
-        price: seat.price,
+        price: webBasePrice,
         totalPrice,
         status: 'pending',
         paymentDeadline: new Date(Date.now() + paymentTimeoutMs(db)).toISOString(),
@@ -4689,7 +5053,7 @@ function normalizePassenger(input, fallbackPhone, options) {
   const phone = String((input && input.phone) || fallbackPhone || '').trim();
   const type = String((input && input.type) || '成人');
   if (!/^[\u4e00-\u9fa5a-zA-Z·]{2,20}$/.test(name)) return { error: `乘客姓名不合法：${name || '空'}` };
-  if (!['成人', '儿童'].includes(type)) return { error: '票种只能是成人或儿童' };
+  if (!['成人', '儿童', '学生'].includes(type)) return { error: '票种只能是成人、儿童或学生' };
   if (idType === '身份证' && !isValidIdCard(idNo)) return { error: `身份证号不合法：${idNo}` };
   if (idType !== '身份证' && !/^[A-Z0-9]{5,20}$/.test(idNo)) return { error: `证件号不合法：${idNo}` };
   const allowEmptyPhone = !!(options && options.allowEmptyPhone);

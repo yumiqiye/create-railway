@@ -21,6 +21,7 @@ public final class TicketNbt {
     public static final String CHECKED_IN = "checkedIn";
     public static final String USED = "used";
     public static final String VOUCHER = "voucher";
+    public static final String ITINERARY = "itinerary";
 
     private TicketNbt() {}
 
@@ -76,6 +77,9 @@ public final class TicketNbt {
         info.putString("checkinStart", RailwayWeb.str(order, "checkinStart", ""));
         info.putDouble("price", order.has("price") ? order.get("price").getAsDouble() : 0.0);
         info.putString("currency", RailwayWeb.str(order, "currency", "emerald"));
+        info.putString("seatType", RailwayWeb.str(order, "seat", RailwayWeb.str(order, "seatType", "")));
+        info.putString("seatNo", RailwayWeb.str(order, "seatNo", ""));
+        info.putString("passengerType", RailwayWeb.str(order, "passengerType", "成人"));
         tag.put(TICKET_INFO, info);
 
         CompoundTag station = new CompoundTag();
@@ -108,6 +112,9 @@ public final class TicketNbt {
         info.putString("seatNo", RailwayWeb.str(order, "seatNo", ""));
         info.putDouble("price", order.has("price") ? order.get("price").getAsDouble() : 0.0);
         info.putString("currency", RailwayWeb.str(order, "currency", "emerald"));
+        info.putString("seatType", RailwayWeb.str(order, "seat", RailwayWeb.str(order, "seatType", "")));
+        info.putString("seatNo", RailwayWeb.str(order, "seatNo", ""));
+        info.putString("passengerType", RailwayWeb.str(order, "passengerType", "成人"));
         tag.put(TICKET_INFO, info);
 
         CompoundTag station = new CompoundTag();
@@ -120,6 +127,43 @@ public final class TicketNbt {
         passenger.putString("idNo", idNo);
         tag.put(PASSENGER_INFO, passenger);
         set(voucher, tag);
+    }
+
+    public static void writeItinerary(ItemStack paper, JsonObject order, String passengerName, String idNo) {
+        CompoundTag tag = copy(paper);
+        tag.putBoolean(ITINERARY, true);
+        tag.putString("orderNo", RailwayWeb.str(order, "orderNo", ""));
+        tag.putString("trainNo", RailwayWeb.str(order, "trainNo", ""));
+        tag.putString("passengerName", passengerName);
+        tag.putString("idNo", idNo);
+
+        CompoundTag info = new CompoundTag();
+        info.putString("orderNo", RailwayWeb.str(order, "orderNo", ""));
+        info.putString("trainNo", RailwayWeb.str(order, "trainNo", ""));
+        info.putString("trainName", RailwayWeb.str(order, "trainName", RailwayWeb.str(order, "trainNo", "")));
+        info.putString("date", RailwayWeb.str(order, "date", ""));
+        info.putString("departTime", RailwayWeb.str(order, "departTime", ""));
+        info.putString("seatType", RailwayWeb.str(order, "seat", RailwayWeb.str(order, "seatType", "")));
+        info.putString("seatNo", RailwayWeb.str(order, "seatNo", ""));
+        info.putDouble("price", order.has("price") ? order.get("price").getAsDouble() : 0.0);
+        info.putString("currency", RailwayWeb.str(order, "currency", "emerald"));
+        info.putString("passengerType", RailwayWeb.str(order, "passengerType", "成人"));
+        tag.put(TICKET_INFO, info);
+
+        CompoundTag station = new CompoundTag();
+        station.putString("from", RailwayWeb.str(order, "fromStationName", ""));
+        station.putString("to", RailwayWeb.str(order, "toStationName", ""));
+        tag.put(STATION_INFO, station);
+
+        CompoundTag passenger = new CompoundTag();
+        passenger.putString("name", passengerName);
+        passenger.putString("idNo", idNo);
+        tag.put(PASSENGER_INFO, passenger);
+        set(paper, tag);
+    }
+
+    public static boolean isItinerary(ItemStack stack) {
+        return copy(stack).getBoolean(ITINERARY);
     }
 
     /** 车票镜像进身份证：闸机读身份证时等同于读车票。 */

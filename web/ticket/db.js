@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS = {
   ],
   changeFeeRate: 0.05,
   childDiscount: 0.5,
+  studentDiscount: 0.75,
   checkinMinutes: 30,
   // 闸机显示：入站 / 出站欢迎语，{station} 会替换为检票端选择的站名
   entryWelcomeText: '欢迎光临{station}',

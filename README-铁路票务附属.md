@@ -135,9 +135,12 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
 - 车次列表来自 `/api/railway/tvm/bootstrap`；
 - 下单 `source=machine`，与普通网页订单分开统计；
 - **内部售票机订单自动支付**，下单后直接是 `paid`，不再要求 `/railway pay`；
+- 购票弹窗支持：席别、单程/往返、返程车次、最多 5 位乘客（可后台调上限）、每位乘客姓名/身份证/成人·儿童·学生票种、指定座位或系统分配；合计按成人/儿童/学生折扣实时计算。
+- 座位下拉来自 `/api/railway/tvm/seats`；换席别会重新拉取空座，已被占用的座位不会重复出现。
 - 点“打印车票” → `#print=订单号` → 附属代执行 `/railway print`，**直接给玩家车票物品**；
-- 点“打印报销凭证” → `#voucher=订单号` → 附属代执行 `/railway voucher`，**直接给玩家报销凭证**；
-- 工具栏“补打车票 / 报销凭证”：输入已支付订单号查询后，内嵌页面重新生成车票或报销凭证物品；普通浏览器生成对应打印预览。
+- 点“报销凭证 / 行程信息单” → 附属代执行 `/railway voucher`、`/railway itinerary`，**直接给玩家对应凭证**；
+- 订单卡片支持退票、改签；改签先按新路线报价，再由游戏内扣差价或退差价。
+- 工具栏“订单服务 / 补打”：输入已支付订单号查询后，可分别补打车票、报销凭证、行程信息单，或办理退票、改签；普通浏览器生成对应打印预览。
 - 空报销凭证的 tooltip 显示“空的报销凭证”，有数据时显示 `G1145 南京南站->清江南站` 这类车次区间。
 
 未安装 MCEF 时，售票机显示引导面板（持证人、公告、网页地址），不会崩溃。
@@ -150,12 +153,16 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
 /railway print <订单号>     # 打印车票并直接放入背包，同时镜像进身份证
 /railway reprint <订单号>   # 补打已打印过的车票（网页售票机补打按钮会调用它）
 /railway voucher <订单号>   # 打印报销凭证并放入背包
+/railway itinerary <订单号> # 打印行程信息单并放入背包
+/railway refund <订单号>    # 按发车时间收取手续费后退票，退款放入背包
+/railway change <订单号> <新车次> <日期> <席别>  # 改签，先报价再扣/退差价
 /railway status             # 所在车站、已购车票、未支付车票
 ```
 
 `/railway admin buy <玩家> <车次> <起点> <终点>` 可由管理员直接为玩家购票并出票。
 车票优先使用 CRH 的 `hexie:red_ticket`；未安装 CRH 时使用附属的 `hexie_railway:railway_ticket`。  
-两者都在 `minecraft:custom_data` 写入订单号、车次、起终站、日期、开检时间、票价、乘车人 NBT。  
+两者都在 `minecraft:custom_data` 写入订单号、车次、起终站、日期、开检时间、票价、席别、座位号、票种、乘车人 NBT。  
+多乘客订单会按乘客逐张生成车票/报销凭证/行程信息单，每张车票镜像对应乘客身份证。  
 背包里有身份证时，车票会自动镜像进身份证，之后可直接刷身份证检票。
 
 ---
@@ -222,10 +229,17 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
 - 下方显示模组车站中心点、维度、铁路局、闸机/售票机数。
 
 ```
-分段票价 = clamp(round(中心点距离 × farePerBlock), minFare, maxFare)
-全程二等座票价 = 各相邻停靠站分段票价之和
-一等座 = round(全程二等座 × 1.5)　商务座 = round(全程二等座 × 2)
+分段票价 = clamp(round(两站中心点距离 × farePerBlock), minFare, maxFare)   # 两站都有坐标
+分段票价 = 手填票价（db.fares）                                             # 任一站缺坐标时回退
+全程二等座 = 各相邻停靠站分段票价之和（缺坐标时按已走段数/全程段数回退该车次二等座手填价）
+二等座基准 = round(全程二等座)
+一等座 = round(二等座基准 × 1.5)　商务座 = round(二等座基准 × 2)
+儿童票 = round(票价 × childDiscount)　学生票 = round(票价 × studentDiscount)
 ```
+
+**坐标优先**：车站有中心点时一律按坐标距离计价，不再采用手填价；只有缺坐标的站点才回退到手填票价，避免长途只收一两个绿宝石。  
+**倍率先取整再乘**：二等座基准先四舍五入成整数，再乘 1.5/2，最后对结果四舍五入；二等 10 → 一等 15、商务 20。  
+POS / 窗口代客购票与售票机走同一套 `railwayRouteFare`，不再按手填席别价收费；成交价始终由服务端重算。
 
 售票机页面按席别显示票价与余票，下单时把席别一并提交；成交价由服务端重算，前端价格不参与结算。
 
@@ -251,18 +265,24 @@ http://127.0.0.1:3000/tvm.html?station=南京南&name=张三&idNo=...&embed=1
 
 ## 七、接口速查
 
-前缀 `/api/railway`，附属请求头 `X-Railway-Token`。
+前缀 `/api/railway`，附属请求头 `X-Railway-Token`。  
+`pay`、`print`、`reprint`、`refund`、`change` 为内部接口，缺少 `X-Railway-Token` 时返回 401。
 
 | 方法 | 路径 |
 | --- | --- |
 | GET | `/railway/config` |
 | GET | `/railway/stations` |
 | GET | `/railway/tvm/bootstrap?station=` |
-| POST | `/railway/orders` |
+| GET | `/railway/tvm/seats?trainId=&date=&seatType=` |
+| GET | `/railway/quote?trainId=&from=&to=&seatType=` |
+| POST | `/railway/orders`（支持 `passengers[]`、`seatIndexes[]`、`tripGroup`） |
 | GET | `/railway/orders?player=&keyword=&status=` |
 | GET | `/railway/orders/:no` |
-| POST | `/railway/orders/:no/pay` |
-| POST | `/railway/orders/:no/print` |
+| POST | `/railway/orders/:no/pay`（内部） |
+| POST | `/railway/orders/:no/print`（内部，body `kind=ticket|voucher|itinerary`） |
+| POST | `/railway/orders/:no/reprint`（内部，body `kind`） |
+| POST | `/railway/orders/:no/refund`（内部） |
+| POST | `/railway/orders/:no/change`（内部，支持 `dryRun` 报价） |
 | POST | `/railway/admin/station` |
 | GET/POST/PUT/DELETE | `/railway/admin/fares` |
 | POST | `/railway/admin/fares/recalculate` |

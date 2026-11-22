@@ -51,4 +51,24 @@ public final class RailwayCurrency {
     public static String label(int amount) {
         return amount + " " + name();
     }
+
+    /** 退款换算：向下取整，避免多退。 */
+    public static int refundItems(double price) {
+        int units = Math.max(0, (int) Math.floor(price));
+        return units * RailwayConfig.emeraldsPerUnit();
+    }
+
+    /** 发放货币物品，背包满时掉落。 */
+    public static void give(net.minecraft.server.level.ServerPlayer player, int amount) {
+        if (amount <= 0) return;
+        Item currency = item();
+        int left = amount;
+        while (left > 0) {
+            int stackSize = Math.min(left, currency.getDefaultMaxStackSize());
+            ItemStack stack = new ItemStack(currency, stackSize);
+            if (!player.getInventory().add(stack)) player.drop(stack, false);
+            left -= stackSize;
+        }
+        player.getInventory().setChanged();
+    }
 }

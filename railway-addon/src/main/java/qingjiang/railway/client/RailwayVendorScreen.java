@@ -186,15 +186,36 @@ public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVen
         String action = payload.startsWith("print=") ? "print"
                 : payload.startsWith("reprint=") ? "reprint"
                 : payload.startsWith("pay=") ? "pay"
-                : payload.startsWith("voucher=") ? "voucher" : "";
+                : payload.startsWith("voucher=") ? "voucher"
+                : payload.startsWith("itinerary=") ? "itinerary"
+                : payload.startsWith("refund=") ? "refund"
+                : payload.startsWith("change=") ? "change" : "";
         if (action.isBlank()) return;
-        String orderNo = payload.substring(action.length() + 1).replaceAll("[^A-Za-z0-9-]", "");
+        String raw = payload.substring(action.length() + 1);
+        String decoded;
+        try {
+            decoded = java.net.URLDecoder.decode(raw, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            decoded = raw;
+        }
+        decoded = decoded.replace("|", "\u0001");
+        String orderNo = decoded.split("\u0001")[0].replaceAll("[^A-Za-z0-9-]", "");
         if (orderNo.isBlank()) return;
-        String key = action + ":" + orderNo + ":" + nonce;
+        String key = action + ":" + decoded + ":" + nonce;
         if (key.equals(lastAction)) return;
         lastAction = key;
+        String command = "railway " + action + " " + orderNo;
+        if ("change".equals(action)) {
+            String[] parts = decoded.split("\u0001");
+            if (parts.length < 4) return;
+            String trainNo = parts[1].replaceAll("[^A-Za-z0-9-]", "");
+            String date = parts[2].replaceAll("[^0-9-]", "");
+            String seatType = parts[3].replaceAll("[^\\u4e00-\\u9fa5A-Za-z0-9]", "");
+            if (trainNo.isBlank() || date.isBlank() || seatType.isBlank()) return;
+            command = command + " " + trainNo + " " + date + " " + seatType;
+        }
         var player = Minecraft.getInstance().player;
-        if (player != null) player.connection.sendCommand("railway " + action + " " + orderNo);
+        if (player != null) player.connection.sendCommand(command);
     }
 
     private int toBrowserX(double mouseX) {

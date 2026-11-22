@@ -70,15 +70,34 @@ public final class RailwayCommands {
                 .then(Commands.literal("print")
                         .then(Commands.argument("orderNo", StringArgumentType.word())
                                 .suggests(ORDER_SUGGESTIONS)
-                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), false, false))))
+                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), "ticket", false))))
                 .then(Commands.literal("reprint")
                         .then(Commands.argument("orderNo", StringArgumentType.word())
                                 .suggests(ORDER_SUGGESTIONS)
-                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), false, true))))
+                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), "ticket", true))))
                 .then(Commands.literal("voucher")
                         .then(Commands.argument("orderNo", StringArgumentType.word())
                                 .suggests(ORDER_SUGGESTIONS)
-                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), true, false))))
+                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), "voucher", true))))
+                .then(Commands.literal("itinerary")
+                        .then(Commands.argument("orderNo", StringArgumentType.word())
+                                .suggests(ORDER_SUGGESTIONS)
+                                .executes(context -> print(context, StringArgumentType.getString(context, "orderNo"), "itinerary", true))))
+                .then(Commands.literal("refund")
+                        .then(Commands.argument("orderNo", StringArgumentType.word())
+                                .suggests(ORDER_SUGGESTIONS)
+                                .executes(context -> refund(context, StringArgumentType.getString(context, "orderNo")))))
+                .then(Commands.literal("change")
+                        .then(Commands.argument("orderNo", StringArgumentType.word())
+                                .suggests(ORDER_SUGGESTIONS)
+                                .then(Commands.argument("trainNo", StringArgumentType.word())
+                                        .then(Commands.argument("date", StringArgumentType.word())
+                                                .then(Commands.argument("seatType", StringArgumentType.word())
+                                                        .executes(context -> change(context,
+                                                                StringArgumentType.getString(context, "orderNo"),
+                                                                StringArgumentType.getString(context, "trainNo"),
+                                                                StringArgumentType.getString(context, "date"),
+                                                                StringArgumentType.getString(context, "seatType"))))))))
                 .then(Commands.literal("status").executes(RailwayCommands::status))
                 .then(Commands.literal("admin")
                         .requires(source -> source.hasPermission(2))
@@ -197,7 +216,7 @@ public final class RailwayCommands {
         }
     }
 
-    private static int print(CommandContext<CommandSourceStack> context, String orderNo, boolean voucher, boolean reprint) {
+    private static int print(CommandContext<CommandSourceStack> context, String orderNo, String kind, boolean reprint) {
         ServerPlayer player = context.getSource().getPlayer();
         if (player == null) return 0;
         try {
@@ -207,40 +226,127 @@ public final class RailwayCommands {
                 reply(player, "订单未支付，请先执行 /railway pay " + orderNo, ChatFormatting.RED);
                 return 0;
             }
+            boolean ticket = "ticket".equals(kind);
             boolean alreadyPrinted = RailwayWeb.b(order, "printed", false);
-            if (!voucher && alreadyPrinted && !reprint) {
-                reply(player, "该订单已打印过车票；补打请用网页售票机的“补打车票”或 /railway reprint " + orderNo, ChatFormatting.YELLOW);
+            if (ticket && alreadyPrinted && !reprint) {
+                reply(player, "该订单已打印过车票；补打请用 /railway reprint " + orderNo, ChatFormatting.YELLOW);
                 return 0;
             }
-            String orderId = RailwayWeb.str(order, "orderNo", orderNo);
-            String passengerName = RailwayWeb.str(order, "passengerName", "");
-            String idNo = RailwayWeb.str(order, "idNo", "");
-            ItemStack paper;
-            if (voucher) {
-                paper = new ItemStack(ModItems.REIMBURSEMENT.get());
-                TicketNbt.writeVoucher(paper, order, passengerName, idNo);
+            JsonArray passengers = order.has("passengers") && order.get("passengers").isJsonArray()
+                    ? order.getAsJsonArray("passengers") : new JsonArray();
+            List<JsonObject> list = new ArrayList<>();
+            if (passengers.size() == 0) {
+                JsonObject single = order.deepCopy();
+                single.addProperty("passengerName", RailwayWeb.str(order, "passengerName", ""));
+                single.addProperty("idNo", RailwayWeb.str(order, "idNo", ""));
+                list.add(single);
             } else {
-                paper = CrhCompat.newTicketStack();
-                TicketNbt.writeTicket(paper, order, passengerName, idNo);
+                for (JsonElement element : passengers) {
+                    if (element.isJsonObject()) list.add(element.getAsJsonObject());
+                }
             }
-            give(player, paper);
+            String orderId = RailwayWeb.str(order, "orderNo", orderNo);
+            for (JsonObject p : list) {
+                String passengerName = RailwayWeb.str(p, "name", RailwayWeb.str(order, "passengerName", ""));
+                String idNo = RailwayWeb.str(p, "idNo", RailwayWeb.str(order, "idNo", ""));
+                JsonObject paperOrder = order.deepCopy();
+                paperOrder.addProperty("passengerName", passengerName);
+                paperOrder.addProperty("idNo", idNo);
+                paperOrder.addProperty("seatNo", RailwayWeb.str(p, "seatNo", RailwayWeb.str(order, "seatNo", "")));
+                if (p.has("price")) paperOrder.add("price", p.get("price"));
+                ItemStack paper;
+                if ("voucher".equals(kind)) {
+                    paper = new ItemStack(ModItems.REIMBURSEMENT.get());
+                    TicketNbt.writeVoucher(paper, paperOrder, passengerName, idNo);
+                } else if ("itinerary".equals(kind)) {
+                    paper = new ItemStack(net.minecraft.world.item.Items.PAPER);
+                    paper.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,
+                            Component.literal("行程信息单 · " + RailwayWeb.str(order, "trainNo", "")));
+                    TicketNbt.writeItinerary(paper, paperOrder, passengerName, idNo);
+                } else {
+                    paper = CrhCompat.newTicketStack();
+                    TicketNbt.writeTicket(paper, paperOrder, passengerName, idNo);
+                    mirrorCard(player, paperOrder, passengerName, idNo);
+                }
+                give(player, paper);
+            }
 
-            if (!voucher) {
-                mirrorCard(player, order, idNo);
+            if (ticket) {
                 String endpoint = reprint ? "/reprint" : "/print";
                 RailwayWeb.blockingPost("/railway/orders/" + orderId + endpoint, new JsonObject(), 3000);
+            } else {
+                JsonObject body = new JsonObject();
+                body.addProperty("kind", kind);
+                RailwayWeb.blockingPost("/railway/orders/" + orderId + "/reprint", body, 3000);
             }
             String train = RailwayWeb.str(order, "trainName", RailwayWeb.str(order, "trainNo", ""));
-            if (voucher) {
-                reply(player, "已打印 " + train + " 报销凭证并放入背包", ChatFormatting.GOLD);
-            } else if (alreadyPrinted || reprint) {
-                reply(player, "已补打 " + train + " 车票并放入背包；请妥善保管", ChatFormatting.GREEN);
-            } else {
-                reply(player, "已打印 " + train + " 车票并放入背包；刷身份证可直接检票", ChatFormatting.GREEN);
-            }
+            String label = "voucher".equals(kind) ? "报销凭证" : "itinerary".equals(kind) ? "行程信息单" : "车票";
+            reply(player, "已打印 " + train + " " + label + " " + list.size() + " 份并放入背包"
+                    + (ticket ? "；刷身份证可直接检票" : ""), ChatFormatting.GREEN);
             return 1;
         } catch (Exception e) {
             reply(player, "打印失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int refund(CommandContext<CommandSourceStack> context, String orderNo) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        try {
+            JsonObject envelope = RailwayWeb.blockingPost("/railway/orders/" + ManualService.enc(orderNo) + "/refund", new JsonObject(), 4000);
+            JsonObject data = RailwayWeb.data(envelope);
+            double amount = data.has("refundAmount") ? data.get("refundAmount").getAsDouble() : 0;
+            double fee = data.has("fee") ? data.get("fee").getAsDouble() : 0;
+            RailwayCurrency.give(player, RailwayCurrency.refundItems(amount));
+            reply(player, "退票成功：手续费 " + fee + "，退回 " + RailwayCurrency.label(RailwayCurrency.refundItems(amount)), ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "退票失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int change(CommandContext<CommandSourceStack> context, String orderNo, String trainNo, String date, String seatType) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        try {
+            JsonObject quoteBody = new JsonObject();
+            quoteBody.addProperty("trainNo", trainNo);
+            quoteBody.addProperty("date", date);
+            quoteBody.addProperty("seatType", seatType);
+            quoteBody.addProperty("dryRun", true);
+            JsonObject quoteEnvelope = RailwayWeb.blockingPost(
+                    "/railway/orders/" + ManualService.enc(orderNo) + "/change", quoteBody, 4000);
+            JsonObject quote = RailwayWeb.data(quoteEnvelope);
+            double needPay = quote.has("needPay") ? quote.get("needPay").getAsDouble() : 0;
+            double refund = quote.has("refund") ? quote.get("refund").getAsDouble() : 0;
+            int remaining = quote.has("remaining") ? quote.get("remaining").getAsInt() : 0;
+            if (remaining <= 0) throw new IllegalStateException("新车次席别已无余票");
+            int needItems = RailwayCurrency.needFor(player, "", needPay);
+            if (needItems > 0) {
+                int have = RailwayCurrency.count(player);
+                if (have < needItems) throw new IllegalStateException("余额不足，需补 " + RailwayCurrency.label(needItems));
+                RailwayCurrency.consume(player, needItems);
+            }
+            try {
+                JsonObject body = new JsonObject();
+                body.addProperty("trainNo", trainNo);
+                body.addProperty("date", date);
+                body.addProperty("seatType", seatType);
+                RailwayWeb.blockingPost("/railway/orders/" + ManualService.enc(orderNo) + "/change", body, 4000);
+            } catch (Exception failure) {
+                if (needItems > 0) RailwayCurrency.give(player, needItems);
+                throw failure;
+            }
+            if (refund > 0) RailwayCurrency.give(player, RailwayCurrency.refundItems(refund));
+            reply(player, "改签成功：" + trainNo + " " + date + " " + seatType
+                    + (needItems > 0 ? "，补交 " + RailwayCurrency.label(needItems) : "")
+                    + (refund > 0 ? "，退回 " + RailwayCurrency.label(RailwayCurrency.refundItems(refund)) : "")
+                    + "；请重新打印车票", ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "改签失败：" + e.getMessage(), ChatFormatting.RED);
             return 0;
         }
     }
@@ -331,9 +437,9 @@ public final class RailwayCommands {
         }
     }
 
-    private static void mirrorCard(ServerPlayer player, JsonObject order, String idNo) {
+    private static void mirrorCard(ServerPlayer player, JsonObject order, String passengerName, String idNo) {
         ItemStack paper = CrhCompat.newTicketStack();
-        TicketNbt.writeTicket(paper, order, RailwayWeb.str(order, "passengerName", ""), idNo);
+        TicketNbt.writeTicket(paper, order, passengerName, idNo);
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             ItemStack stack = player.getInventory().getItem(i);
             if (TicketNbt.isIdCard(stack) && (idNo.isBlank() || idNo.equals(TicketNbt.idCardNumber(stack)))) {

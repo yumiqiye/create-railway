@@ -38,14 +38,28 @@
   .empty { text-align:center; color:var(--muted); padding:60px 0; background:#fff; border-radius:12px; }
   .mask { position:fixed; inset:0; background:#0c1b2dcc; display:none; align-items:center; justify-content:center; padding:20px; z-index:9; }
   .mask.show { display:flex; }
-  .dialog { background:#fff; border-radius:14px; width:min(520px,100%); padding:24px 26px; box-shadow:0 20px 60px #0004; }
+  .dialog { background:#fff; border-radius:14px; width:min(520px,100%); max-height:92vh; overflow:auto; padding:24px 26px; box-shadow:0 20px 60px #0004; }
+  .dialog.wide { width:min(760px,100%); }
+  .dialog.mid { width:min(660px,100%); }
   .dialog h2 { margin:0 0 6px; font-size:22px; color:var(--blue); }
-  .dialog .hint { color:var(--muted); font-size:13px; margin-bottom:16px; }
+  .dialog .hint { color:var(--muted); font-size:13px; margin-bottom:16px; line-height:1.6; }
   .field { margin-bottom:12px; }
   .field label { display:block; font-size:13px; color:var(--muted); margin-bottom:5px; }
   .field input, .field select { width:100%; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .pax-head { display:flex; align-items:center; gap:10px; margin:16px 0 8px; }
+  .pax-head b { font-size:15px; color:var(--blue); }
+  .pax-head span { font-size:12px; color:var(--muted); }
+  .pax-head .btn { margin-left:auto; height:32px; font-size:13px; padding:0 12px; }
+  .pax-row { display:grid; grid-template-columns:1fr 1.35fr 80px 1.1fr 32px; gap:8px; margin-bottom:8px; align-items:center; }
+  .pax-row input, .pax-row select { height:34px; font-size:14px; padding:0 8px; }
+  .pax-del { height:30px; width:30px; border:none; border-radius:6px; background:#fdecec; color:#b23; cursor:pointer; font-size:18px; line-height:1; }
   .orderbox { background:#f6f9fe; border:1px dashed #b8cdea; border-radius:10px; padding:14px; margin:12px 0; font-size:14px; line-height:1.9; }
-  .orderbox b { color:var(--blue); font-size:18px; letter-spacing:1px; }
+  .orderbox b { color:var(--blue); font-size:17px; letter-spacing:1px; }
+  .order-item { background:#fff; border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; line-height:1.8; }
+  .order-item .item-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .order-item .item-actions button { height:30px; border:1px solid #b8cdea; border-radius:6px; background:#fff; color:var(--blue2); font-size:13px; padding:0 12px; cursor:pointer; }
+  .order-item .item-actions button:disabled { opacity:.5; cursor:not-allowed; }
   .cmd { background:#0f2642; color:#d9e7ff; border-radius:8px; padding:10px 12px; font-family:Consolas,monospace; font-size:14px; margin:8px 0; word-break:break-all; }
   .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:16px; flex-wrap:wrap; }
   .ticket-print { display:none; }
@@ -53,6 +67,11 @@
   .ticket-print .tp { border:2px solid #123a6b; border-radius:10px; padding:18px; max-width:560px; }
   .ticket-print h3 { margin:0 0 10px; color:#123a6b; }
   .ticket-print .row { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #dfe6f0; font-size:14px; }
+  @media (max-width:640px) {
+    .train { grid-template-columns:1fr 1fr; }
+    .pax-row { grid-template-columns:1fr 1fr; }
+    .pax-row .pax-del { width:100%; }
+  }
 </style>
 </head>
 <body>
@@ -71,20 +90,29 @@
     <span style="font-size:14px;color:#7b8798">出发车站</span>
     <select id="stationSelect"></select>
     <button class="btn ghost" id="refreshBtn">刷新车次</button>
-    <button class="btn gold" id="reprintOpenBtn">补打车票 / 报销凭证</button>
-    <span style="margin-left:auto;font-size:13px;color:#7b8798">在游戏内购票请直接在售票机刷身份证；本页仅供自助机/内嵌浏览器使用</span>
+    <button class="btn gold" id="reprintOpenBtn">订单服务 / 补打</button>
+    <span style="margin-left:auto;font-size:13px;color:#7b8798">支持选座、多乘客、儿童/学生票、往返、退票与改签</span>
   </div>
   <div class="trains" id="trainList"><div class="empty">正在加载车次…</div></div>
 </main>
 
 <!-- 购票信息 -->
 <div class="mask" id="buyMask">
-  <div class="dialog">
+  <div class="dialog wide">
     <h2>确认购票</h2>
     <div class="hint" id="buyHint">请填写乘车人信息；出票需要使用本人身份证。</div>
-    <div class="field"><label>席别</label><select id="buySeat"></select></div>
-    <div class="field"><label>乘车人姓名</label><input id="buyName" maxlength="20" placeholder="请输入姓名" /></div>
-    <div class="field"><label>身份证号</label><input id="buyIdNo" maxlength="32" placeholder="请输入身份证号" /></div>
+    <div class="two-col">
+      <div class="field"><label>席别</label><select id="buySeat"></select></div>
+      <div class="field"><label>行程类型</label><select id="buyTrip"><option value="single">单程</option><option value="round">往返</option></select></div>
+    </div>
+    <div class="field" id="returnField" style="display:none">
+      <label>返程车次</label><select id="buyReturn"></select>
+    </div>
+    <div class="pax-head">
+      <b>乘车人</b><span>单笔最多 <b id="buyMaxPax">5</b> 人；儿童/学生按折扣计价</span>
+      <button class="btn ghost" id="addPax" type="button">+ 添加乘客</button>
+    </div>
+    <div id="paxList"></div>
     <div class="orderbox" id="buySummary"></div>
     <div class="actions">
       <button class="btn ghost" data-close="buyMask">取消</button>
@@ -95,33 +123,48 @@
 
 <!-- 订单 / 支付 / 打印 -->
 <div class="mask" id="orderMask">
-  <div class="dialog">
+  <div class="dialog wide">
     <h2 id="orderTitle">订单待支付</h2>
-    <div class="hint" id="orderHint">内部售票机订单自动支付，无需再输入支付指令。</div>
+    <div class="hint">可分别打印车票、报销凭证、行程信息单，也可发起退票或改签。内嵌售票机会直接生成物品并放入背包。</div>
     <div class="orderbox" id="orderSummary"></div>
     <div class="cmd" id="payCmd"></div>
-    <div class="hint" id="payHint">售票机购票已自动完成支付；如需领取物品车票，点击“打印车票”。</div>
     <div class="actions">
       <button class="btn ghost" data-close="orderMask">关闭</button>
       <button class="btn ghost" id="copyCmd">复制支付指令</button>
-      <button class="btn gold" id="voucherBtn" disabled>打印报销凭证</button>
-      <button class="btn" id="printBtn" disabled>打印车票</button>
     </div>
   </div>
 </div>
 
-<!-- 补打车票 / 报销凭证 -->
+<!-- 补打 / 退改 -->
 <div class="mask" id="reprintMask">
-  <div class="dialog">
-    <h2>补打车票 / 报销凭证</h2>
-    <div class="hint">输入已支付订单号查询；内嵌售票机会重新生成物品并放入玩家背包，普通网页会生成打印预览。</div>
+  <div class="dialog mid">
+    <h2>订单服务 / 补打</h2>
+    <div class="hint">输入已支付订单号查询；可补打车票、报销凭证、行程信息单，或办理退票、改签。</div>
     <div class="field"><label>订单号</label><input id="reprintNo" maxlength="40" placeholder="请输入原订单号" /></div>
     <div class="orderbox" id="reprintSummary">输入订单号后点击“查询订单”。</div>
     <div class="actions">
       <button class="btn ghost" data-close="reprintMask">关闭</button>
       <button class="btn ghost" id="reprintQuery">查询订单</button>
       <button class="btn gold" id="reprintVoucher" disabled>补打报销凭证</button>
+      <button class="btn gold" id="reprintItinerary" disabled>补打行程信息单</button>
       <button class="btn" id="reprintTicket" disabled>补打车票</button>
+      <button class="btn ghost" id="reprintRefund" disabled>退票</button>
+      <button class="btn ghost" id="reprintChange" disabled>改签</button>
+    </div>
+  </div>
+</div>
+
+<!-- 改签 -->
+<div class="mask" id="changeMask">
+  <div class="dialog">
+    <h2>改签</h2>
+    <div class="hint">改签会按新路线重新计价并重新分配座位；差价需在游戏内支付。</div>
+    <div class="field"><label>新车次</label><input id="changeTrain" maxlength="20" placeholder="如 G7001" /></div>
+    <div class="field"><label>新日期</label><input id="changeDate" type="date" /></div>
+    <div class="field"><label>新席别</label><select id="changeSeat"><option>二等座</option><option>一等座</option><option>商务座</option></select></div>
+    <div class="actions">
+      <button class="btn ghost" data-close="changeMask">取消</button>
+      <button class="btn" id="changeConfirm">确认改签</button>
     </div>
   </div>
 </div>
@@ -142,7 +185,22 @@
 
 <script>
 (function () {
-  var state = { station: '', trains: [], order: null, pollTimer: 0, ticket: null, reprintOrder: null };
+  var state = {
+    station: '',
+    trains: [],
+    order: null,
+    orders: [],
+    pollTimer: 0,
+    ticket: null,
+    reprintOrder: null,
+    changeOrder: null,
+    pendingTrain: null,
+    buySeats: [],
+    returnTrains: [],
+    childDiscount: 0.5,
+    studentDiscount: 0.75,
+    maxPax: 5,
+  };
   var presetName = qs('name');
   var presetIdNo = qs('idNo');
   var embedded = qs('embed') === '1';
@@ -161,6 +219,11 @@
   function $(id) { return document.getElementById(id); }
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
   function toast(text) { window.alert(text); }
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function money(n) { return Math.round(Number(n) || 0); }
 
   function loadStations() {
     return api('/railway/stations').then(function (rows) {
@@ -170,9 +233,7 @@
         return '<option value="' + esc(s.name) + '">' + esc(s.name) + (s.code ? '（' + esc(s.code) + '）' : '') + '</option>';
       }).join('');
       var preferred = qs('station') || localStorage.getItem('railway.station') || '';
-      if (preferred && list.some(function (s) { return s.name === preferred; })) {
-        select.value = preferred;
-      }
+      if (preferred && list.some(function (s) { return s.name === preferred; })) select.value = preferred;
       state.station = select.value || '';
       if (embedded) select.disabled = true;
       select.addEventListener('change', function () {
@@ -195,6 +256,10 @@
       if (data.logoUrl) $('logo').src = data.logoUrl;
       $('stationLine').innerHTML = '当前车站<br><b style="font-size:18px">' + esc((data.station && data.station.name) || state.station) + '</b>';
       state.trains = data.trains || [];
+      state.childDiscount = Number(data.childDiscount) || 0.5;
+      state.studentDiscount = Number(data.studentDiscount) || 0.75;
+      state.maxPax = Number(data.maxPassengersPerOrder) || 5;
+      $('buyMaxPax').textContent = state.maxPax;
       renderTrains();
     }).catch(function (err) {
       $('trainList').innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
@@ -233,20 +298,175 @@
     return seatOptionsOf(train).find(function (s) { return s.type === type; }) || null;
   }
 
+  function addPaxRow(name, idNo, type, seatIndex) {
+    if ($('paxList').children.length >= state.maxPax) return toast('单笔最多 ' + state.maxPax + ' 位乘客');
+    var row = document.createElement('div');
+    row.className = 'pax-row';
+    row.innerHTML =
+      '<input class="pax-name" maxlength="20" placeholder="姓名" value="' + esc(name || '') + '" />' +
+      '<input class="pax-id" maxlength="32" placeholder="身份证号" value="' + esc(idNo || '') + '" />' +
+      '<select class="pax-type"><option>成人</option><option>儿童</option><option>学生</option></select>' +
+      '<select class="pax-seat"><option value="">系统分配</option></select>' +
+      '<button class="pax-del" type="button" title="删除">×</button>';
+    row.querySelector('.pax-type').value = type || '成人';
+    if (seatIndex !== undefined && seatIndex !== null && seatIndex !== '') {
+      row.querySelector('.pax-seat').setAttribute('data-pref', String(seatIndex));
+    }
+    row.querySelector('.pax-del').addEventListener('click', function () {
+      if ($('paxList').children.length <= 1) return toast('至少保留一位乘客');
+      row.remove();
+      refreshSeatSelects();
+      updateBuySummary();
+    });
+    $('paxList').appendChild(row);
+    row.querySelector('.pax-type').addEventListener('change', updateBuySummary);
+    row.querySelector('.pax-seat').addEventListener('change', function () {
+      refreshSeatSelects();
+      updateBuySummary();
+    });
+    return row;
+  }
+
+  function refreshPaxRows() {
+    $('paxList').innerHTML = '';
+    addPaxRow(presetName || localStorage.getItem('railway.name') || '', presetIdNo || localStorage.getItem('railway.idNo') || '', '成人');
+    if (embedded && presetName && presetIdNo) {
+      $('paxList').querySelector('.pax-name').readOnly = true;
+      $('paxList').querySelector('.pax-id').readOnly = true;
+    }
+  }
+
+  function collectPassengers() {
+    var rows = Array.prototype.slice.call($('paxList').children);
+    return rows.map(function (row) {
+      return {
+        name: row.querySelector('.pax-name').value.trim(),
+        idNo: row.querySelector('.pax-id').value.trim(),
+        type: row.querySelector('.pax-type').value,
+        seatIndex: row.querySelector('.pax-seat').value === '' ? null : Number(row.querySelector('.pax-seat').value),
+      };
+    });
+  }
+
+  function refreshSeatSelects() {
+    var seats = state.buySeats || [];
+    var rows = Array.prototype.slice.call($('paxList').children);
+    var chosen = rows.map(function (row) { return row.querySelector('.pax-seat').value; });
+    rows.forEach(function (row, i) {
+      var select = row.querySelector('.pax-seat');
+      var current = select.value || select.getAttribute('data-pref') || '';
+      var options = ['<option value="">系统分配</option>'];
+      seats.forEach(function (s) {
+        var usedByOther = chosen.some(function (v, idx) { return idx !== i && v === String(s.index); });
+        if (usedByOther) return;
+        options.push('<option value="' + s.index + '">' + esc(s.label) + '</option>');
+      });
+      select.innerHTML = options.join('');
+      if (current && options.some(function (o) { return o.indexOf('value="' + current + '"') >= 0; })) {
+        select.value = current;
+      } else {
+        select.value = '';
+      }
+      select.removeAttribute('data-pref');
+    });
+  }
+
+  function refreshBuySeats() {
+    var train = state.pendingTrain;
+    var seat = selectedSeat();
+    if (!train || !seat) return Promise.resolve();
+    return api('/railway/tvm/seats?trainId=' + encodeURIComponent(train.trainId) +
+      '&date=' + encodeURIComponent(today()) + '&seatType=' + encodeURIComponent(seat.type))
+      .then(function (data) {
+        state.buySeats = data.seats || [];
+        refreshSeatSelects();
+        updateBuySummary();
+      })
+      .catch(function (err) {
+        state.buySeats = [];
+        refreshSeatSelects();
+        toast(err.message);
+      });
+  }
+
+  function paxPrice(base, type) {
+    if (type === '儿童') return money(base * state.childDiscount);
+    if (type === '学生') return money(base * state.studentDiscount);
+    return money(base);
+  }
+
+  function selectedReturnTrain() {
+    var id = $('buyReturn').value;
+    return state.returnTrains.find(function (t) { return t.trainId === id; }) || null;
+  }
+
+  function returnSeatPrice() {
+    var train = selectedReturnTrain();
+    if (!train) return 0;
+    var seat = seatOptionsOf(train).find(function (s) { return s.type === $('buySeat').value; });
+    return seat ? Number(seat.price) : 0;
+  }
+
   function updateBuySummary() {
     var train = state.pendingTrain;
     if (!train) return;
+    var pax = collectPassengers();
     var seat = selectedSeat();
+    var forwardBase = Number(seat ? seat.price : train.price) || 0;
+    var total = pax.reduce(function (sum, p) { return sum + paxPrice(forwardBase, p.type); }, 0);
+    var returnBase = $('buyTrip').value === 'round' ? returnSeatPrice() : 0;
+    var returnTotal = returnBase
+      ? pax.reduce(function (sum, p) { return sum + paxPrice(returnBase, p.type); }, 0)
+      : 0;
+    var paxLines = pax.map(function (p, i) {
+      return '<div>' + (i + 1) + '. ' + esc(p.name || '未填写') + '　' + esc(p.type) +
+        '　' + esc(p.seatIndex === null ? '系统分配' : ('指定座位 ' + (state.buySeats.find(function (s) { return s.index === p.seatIndex; }) || {}).label || p.seatIndex)) +
+        '　' + esc(paxPrice(forwardBase, p.type)) + ' 绿宝石</div>';
+    }).join('');
     $('buySummary').innerHTML =
-      '<div>车次：<b>' + esc(train.trainNo) + '</b>　' + esc(train.fromStationName) + ' → ' + esc(train.toStationName) + '</div>' +
-      '<div>席别：<b>' + esc(seat ? seat.type : '二等座') + '</b>　开车：' + esc(train.departTime) +
-      '　票价：<b style="color:#1c8a4b">' + esc(seat ? seat.price : train.price) + ' 绿宝石</b></div>';
-    $('buyConfirm').disabled = !seat || Number(seat.remaining) <= 0;
+      '<div>去程：<b>' + esc(train.trainNo) + '</b>　' + esc(train.fromStationName) + ' → ' + esc(train.toStationName) +
+      '　' + esc($('buySeat').value) + '　' + esc(train.departTime) + '</div>' +
+      paxLines +
+      ($('buyTrip').value === 'round'
+        ? '<div>返程：<b>' + esc(selectedReturnTrain() ? selectedReturnTrain().trainNo : '未选择') + '</b>　' +
+          esc(train.toStationName) + ' → ' + esc(train.fromStationName) +
+          (returnBase ? '　' + esc(returnBase) + ' 绿宝石/成人' : '') + '</div>'
+        : '') +
+      '<div style="margin-top:6px">合计：<b style="color:#1c8a4b;font-size:18px">' + esc(total + returnTotal) + ' 绿宝石</b>' +
+      ($('buyTrip').value === 'round' ? '（去程 ' + esc(total) + ' + 返程 ' + esc(returnTotal) + '）' : '') + '</div>';
+    $('buyConfirm').disabled = !seat || Number(seat.remaining) <= 0 ||
+      ($('buyTrip').value === 'round' && !selectedReturnTrain());
+  }
+
+  function loadReturnTrains() {
+    var train = state.pendingTrain;
+    if (!train || $('buyTrip').value !== 'round') return Promise.resolve();
+    var destination = train.toStationName;
+    $('buyReturn').innerHTML = '<option value="">正在加载返程车次…</option>';
+    return api('/railway/tvm/bootstrap?station=' + encodeURIComponent(destination)).then(function (data) {
+      var origin = train.fromStationName;
+      state.returnTrains = (data.trains || []).filter(function (t) {
+        return Array.isArray(t.stops) ? t.stops.indexOf(origin) >= 0 : true;
+      });
+      $('buyReturn').innerHTML = state.returnTrains.length
+        ? state.returnTrains.map(function (t) {
+            var seat = seatOptionsOf(t).find(function (s) { return s.type === $('buySeat').value; });
+            var soldOut = !seat || Number(seat.remaining) <= 0;
+            return '<option value="' + esc(t.trainId) + '"' + (soldOut ? ' disabled' : '') + '>' +
+              esc(t.trainNo) + '　' + esc(t.departTime) + '　' + esc($('buySeat').value) +
+              '　' + esc(seat ? seat.price : '-') + ' 绿宝石' + (soldOut ? '（无票）' : '') + '</option>';
+          }).join('')
+        : '<option value="">该区间暂无返程车次</option>';
+      updateBuySummary();
+    }).catch(function (err) {
+      $('buyReturn').innerHTML = '<option value="">' + esc(err.message) + '</option>';
+    });
   }
 
   function openBuy(train) {
     if (!train) return;
     state.pendingTrain = train;
+    state.returnTrains = [];
     var seats = seatOptionsOf(train);
     $('buySeat').innerHTML = seats.map(function (s) {
       return '<option value="' + esc(s.type) + '"' + (Number(s.remaining) <= 0 ? ' disabled' : '') + '>' +
@@ -255,101 +475,168 @@
     var preferred = seats.find(function (s) { return s.type === '二等座' && Number(s.remaining) > 0; }) ||
       seats.find(function (s) { return Number(s.remaining) > 0; }) || seats[0];
     $('buySeat').value = preferred ? preferred.type : '';
-    $('buyName').value = presetName || localStorage.getItem('railway.name') || '';
-    $('buyIdNo').value = presetIdNo || localStorage.getItem('railway.idNo') || '';
+    $('buyTrip').value = 'single';
+    $('returnField').style.display = 'none';
+    refreshPaxRows();
+    state.buySeats = [];
+    refreshSeatSelects();
     if (embedded && presetName && presetIdNo) {
-      $('buyName').readOnly = true;
-      $('buyIdNo').readOnly = true;
-      $('buyHint').textContent = '已从放入售票机的身份证读取乘车人，无需手动填写。';
+      $('buyHint').textContent = '已从放入售票机的身份证读取首位乘车人；其余乘客可手动填写。';
+    } else {
+      $('buyHint').textContent = '可为多位乘客购票；儿童票、学生票按后台折扣计价。';
     }
+    refreshBuySeats();
     updateBuySummary();
     $('buyMask').classList.add('show');
-    $('buyName').focus();
+  }
+
+  function createOneOrder(train, stationName, toStationName, seatType, pax, source, tripGroup) {
+    var body = {
+      trainId: train.trainId,
+      trainNo: train.trainNo,
+      stationName: stationName,
+      toStationName: toStationName,
+      seatType: seatType,
+      passengers: pax.map(function (p) { return { name: p.name, idNo: p.idNo, type: p.type }; }),
+      seatIndexes: pax.filter(function (p) { return p.seatIndex !== null; }).map(function (p) { return p.seatIndex; }),
+      source: source,
+      date: today(),
+      tripGroup: tripGroup || '',
+    };
+    return api('/railway/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (data) { return data.order; });
   }
 
   function createOrder() {
     var train = state.pendingTrain;
     if (!train) return;
-    var name = $('buyName').value.trim();
-    var idNo = $('buyIdNo').value.trim();
     var seat = selectedSeat();
     if (!seat) return toast('请选择席别');
     if (Number(seat.remaining) <= 0) return toast('该席别余票不足');
-    if (!name) return toast('请填写乘车人姓名');
-    if (!idNo) return toast('请填写身份证号');
-    localStorage.setItem('railway.name', name);
-    localStorage.setItem('railway.idNo', idNo);
-    $('buyConfirm').disabled = true;
-    api('/railway/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        trainId: train.trainId,
-        trainNo: train.trainNo,
-        stationName: state.station,
-        seatType: seat.type,
-        passengerName: name,
-        idNo: idNo,
-        source: 'machine',
-      }),
-    }).then(function (data) {
-      state.order = data.order;
-      $('buyMask').classList.remove('show');
-      showOrder();
-    }).catch(function (err) {
-      toast(err.message);
-    }).finally(function () {
-      updateBuySummary();
+    var pax = collectPassengers();
+    if (!pax.length) return toast('请至少填写一位乘客');
+    var bad = pax.find(function (p) { return !p.name || !p.idNo; });
+    if (bad) return toast('请填写所有乘客的姓名和身份证号');
+    var idSet = {};
+    for (var i = 0; i < pax.length; i += 1) {
+      if (idSet[pax[i].idNo]) return toast('乘客证件号不能重复');
+      idSet[pax[i].idNo] = true;
+    }
+    var round = $('buyTrip').value === 'round';
+    var returnTrain = selectedReturnTrain();
+    if (round && !returnTrain) return toast('请选择返程车次');
+    pax.forEach(function (p) {
+      if (p.seatIndex === null) delete p.seatIndex;
     });
+    localStorage.setItem('railway.name', pax[0].name);
+    localStorage.setItem('railway.idNo', pax[0].idNo);
+    $('buyConfirm').disabled = true;
+    var tripGroup = 'T' + Date.now().toString(36);
+    createOneOrder(train, train.fromStationName, train.toStationName, seat.type, pax, 'machine', tripGroup)
+      .then(function (forward) {
+        state.orders = [forward];
+        state.order = forward;
+        if (!round) return;
+        return createOneOrder(returnTrain, returnTrain.fromStationName, train.fromStationName, seat.type,
+          pax.map(function (p) { var copy = Object.assign({}, p); copy.seatIndex = null; return copy; }),
+          'machine', tripGroup)
+          .then(function (back) { state.orders.push(back); })
+          .catch(function (err) {
+            forward.returnError = err.message;
+          });
+      })
+      .then(function () {
+        $('buyMask').classList.remove('show');
+        showOrder();
+      })
+      .catch(function (err) {
+        toast(err.message);
+      })
+      .finally(function () {
+        updateBuySummary();
+      });
+  }
+
+  function passengerText(order) {
+    var rows = order.passengers || [];
+    if (!rows.length) return esc(order.passengerName || '');
+    return rows.map(function (p) {
+      return esc(p.name) + '(' + esc(p.type || '成人') + ')' + (p.seatNo ? ' ' + esc(p.seatNo) : '');
+    }).join('，');
   }
 
   function showOrder() {
-    var order = state.order;
-    if (!order) return;
+    if (!state.orders.length) return;
     $('orderMask').classList.add('show');
-    $('orderTitle').textContent = order.status === 'paid' ? '订单已支付' : '订单待支付';
-    $('orderSummary').innerHTML =
-      '<div>订单号：<b>' + esc(order.orderNo) + '</b></div>' +
-      '<div>车次：' + esc(order.trainNo) + '　' + esc(order.fromStationName) + ' → ' + esc(order.toStationName) + '</div>' +
-      '<div>日期：' + esc(order.date) + '　开车：' + esc(order.departTime) + '</div>' +
-      '<div>席别：' + esc(order.seat || order.seatType || '二等座') + '　乘车人：' + esc(order.passengerName) + '　票价：<b style="color:#1c8a4b">' + esc(order.price) + ' 绿宝石</b></div>' +
-      '<div>状态：' + (order.status === 'paid' ? '已支付' : '待支付') + '</div>';
-    $('payCmd').textContent = order.status === 'paid' ? '' : '/railway pay ' + order.orderNo;
-    $('payCmd').style.display = order.status === 'paid' ? 'none' : 'block';
-    $('copyCmd').style.display = order.status === 'paid' ? 'none' : 'inline-block';
-    $('printBtn').disabled = order.status !== 'paid';
-    $('voucherBtn').disabled = order.status !== 'paid';
-    if (embedded) $('voucherBtn').textContent = '打印报销凭证';
+    var first = state.orders[0];
+    $('orderTitle').textContent = first.status === 'paid' ? '订单已支付' : '订单待支付';
+    $('orderSummary').innerHTML = state.orders.map(function (order, index) {
+      var paid = order.status === 'paid';
+      return '<div class="order-item" data-order="' + index + '">' +
+        '<div>订单号：<b>' + esc(order.orderNo) + '</b>　状态：' + (paid ? '已支付' : '待支付') + '</div>' +
+        '<div>车次：' + esc(order.trainNo) + '　' + esc(order.fromStationName) + ' → ' + esc(order.toStationName) + '</div>' +
+        '<div>日期：' + esc(order.date) + ' ' + esc(order.departTime) + '　席别：' + esc(order.seat || order.seatType || '') + '</div>' +
+        '<div>乘客：' + passengerText(order) + '</div>' +
+        '<div>票价：<b style="color:#1c8a4b">' + esc(order.totalPrice || order.price) + ' 绿宝石</b>' +
+        (order.returnError ? '　<span style="color:#b23">返程下单失败：' + esc(order.returnError) + '</span>' : '') + '</div>' +
+        '<div class="item-actions">' +
+        '<button type="button" data-act="print" data-order="' + index + '"' + (paid ? '' : ' disabled') + '>打印车票</button>' +
+        '<button type="button" data-act="voucher" data-order="' + index + '"' + (paid ? '' : ' disabled') + '>报销凭证</button>' +
+        '<button type="button" data-act="itinerary" data-order="' + index + '"' + (paid ? '' : ' disabled') + '>行程信息单</button>' +
+        '<button type="button" data-act="refund" data-order="' + index + '"' + (paid ? '' : ' disabled') + '>退票</button>' +
+        '<button type="button" data-act="change" data-order="' + index + '"' + (paid ? '' : ' disabled') + '>改签</button>' +
+        '</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#orderSummary [data-act]'), function (btn) {
+      btn.addEventListener('click', function () {
+        actOnOrder(Number(btn.getAttribute('data-order')), btn.getAttribute('data-act'));
+      });
+    });
+    var needsPay = state.orders.some(function (o) { return o.status !== 'paid'; });
+    $('payCmd').textContent = needsPay ? '/railway pay ' + state.orders[0].orderNo : '';
+    $('payCmd').style.display = needsPay ? 'block' : 'none';
+    $('copyCmd').style.display = needsPay ? 'inline-block' : 'none';
     pollOrder();
   }
 
   function pollOrder() {
     if (state.pollTimer) window.clearInterval(state.pollTimer);
     state.pollTimer = window.setInterval(function () {
-      if (!state.order) return;
-      api('/railway/orders/' + encodeURIComponent(state.order.orderNo)).then(function (order) {
-        if (order.status !== state.order.status) {
-          state.order = Object.assign({}, state.order, order);
-          showOrder();
-          if (order.status === 'paid') toast('支付成功：车次 ' + order.trainNo + '（' + order.price + ' 绿宝石）');
-        }
-      }).catch(function () {});
+      if (!state.orders.length) return;
+      state.orders.forEach(function (order, index) {
+        api('/railway/orders/' + encodeURIComponent(order.orderNo)).then(function (fresh) {
+          if (fresh.status !== order.status) {
+            state.orders[index] = Object.assign({}, order, fresh);
+            showOrder();
+          }
+        }).catch(function () {});
+      });
     }, 4000);
   }
 
-  function sendEmbeddedAction(action, orderNo) {
-    // 加时间戳，保证连续补打同一个订单也会触发游戏内轮询。
-    location.hash = action + '=' + encodeURIComponent(orderNo) + '&' + Date.now();
-    toast('已发送游戏内指令：/railway ' + (action === 'reprint' ? 'reprint' : action) + ' ' + orderNo);
+  function actOnOrder(index, act) {
+    var order = state.orders[index];
+    if (!order) return;
+    if (act === 'change') return openChange(order);
+    if (act === 'refund') return refundOrder(order);
+    if (!embedded) return fillPrint(order, act);
+    sendEmbeddedAction(act === 'print' ? 'print' : act, order.orderNo);
+  }
+
+  function sendEmbeddedAction(action, payload) {
+    location.hash = action + '=' + encodeURIComponent(payload) + '&' + Date.now();
+    var command = action === 'reprint' ? 'reprint' : action;
+    toast('已发送游戏内指令：/railway ' + command + ' ' + payload);
   }
 
   function copyCommand() {
-    if (!state.order) return;
-    if (embedded) {
-      sendEmbeddedAction('pay', state.order.orderNo);
-      return;
-    }
-    var text = '/railway pay ' + state.order.orderNo;
+    var order = state.orders.find(function (o) { return o.status !== 'paid'; }) || state.order;
+    if (!order) return;
+    if (embedded) return sendEmbeddedAction('pay', order.orderNo);
+    var text = '/railway pay ' + order.orderNo;
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () { toast('已复制：' + text); }, function () { toast(text); });
     } else {
@@ -358,37 +645,32 @@
   }
 
   function fillPrint(order, kind) {
-    var voucher = kind === 'voucher';
-    $('tpTitle').textContent = (($('systemName').textContent || '清江铁路') + (voucher ? ' · 报销凭证' : ' · 火车票'));
+    var label = kind === 'voucher' ? '报销凭证' : kind === 'itinerary' ? '行程信息单' : '火车票';
+    $('tpTitle').textContent = ($('systemName').textContent || '清江铁路') + ' · ' + label;
     $('tpOrder').textContent = order.orderNo;
     $('tpTrain').textContent = order.trainNo;
     $('tpRoute').textContent = order.fromStationName + ' → ' + order.toStationName;
     $('tpTime').textContent = order.date + ' ' + order.departTime;
-    $('tpPrice').textContent = order.price + ' 绿宝石';
-    $('tpName').textContent = order.passengerName || '';
-    $('tpId').textContent = (order.idNo || '').replace(/^(.{4}).*(.{4})$/, '$1**********$2');
-    toast(voucher ? '正在生成报销凭证打印预览。' : '正在生成车票打印预览。');
+    $('tpPrice').textContent = (order.totalPrice || order.price) + ' 绿宝石';
+    $('tpName').textContent = (order.passengers || []).map(function (p) { return p.name; }).join('，') || order.passengerName || '';
+    var ids = (order.passengers || []).map(function (p) { return p.idNo; }).filter(Boolean);
+    $('tpId').textContent = ids.length
+      ? ids.map(function (v) { return v.replace(/^(.{4}).*(.{4})$/, '$1**********$2'); }).join('，')
+      : (order.idNo || '').replace(/^(.{4}).*(.{4})$/, '$1**********$2');
+    toast('正在生成' + label + '打印预览。');
     window.print();
-  }
-
-  function printTicket() {
-    var order = state.order;
-    if (!order || order.status !== 'paid') return;
-    if (embedded) {
-      sendEmbeddedAction('print', order.orderNo);
-      return;
-    }
-    fillPrint(order, 'ticket');
   }
 
   function openReprint() {
     state.reprintOrder = null;
-    $('reprintNo').value = state.order && state.order.orderNo ? state.order.orderNo : '';
+    $('reprintNo').value = state.orders.length ? state.orders[0].orderNo : '';
     $('reprintSummary').textContent = '输入订单号后点击“查询订单”。';
-    $('reprintTicket').disabled = true;
-    $('reprintVoucher').disabled = true;
+    setReprintButtons(false);
     $('reprintMask').classList.add('show');
-    $('reprintNo').focus();
+  }
+
+  function setReprintButtons(on) {
+    ['reprintTicket', 'reprintVoucher', 'reprintItinerary', 'reprintRefund', 'reprintChange'].forEach(function (id) { $(id).disabled = !on; });
   }
 
   function queryReprintOrder() {
@@ -401,18 +683,17 @@
       $('reprintSummary').innerHTML =
         '<div>订单号：<b>' + esc(order.orderNo) + '</b></div>' +
         '<div>车次：' + esc(order.trainNo) + '　' + esc(order.fromStationName) + ' → ' + esc(order.toStationName) + '</div>' +
-        '<div>日期：' + esc(order.date) + '　开车：' + esc(order.departTime) + '</div>' +
-        '<div>乘车人：' + esc(order.passengerName) + '　票价：<b style="color:#1c8a4b">' + esc(order.price) + ' 绿宝石</b></div>' +
-        '<div>打印状态：' + (order.printed ? '已打印过' + (order.printCount ? '（' + esc(order.printCount) + ' 次）' : '') : '未打印') +
-        '　状态：' + (paid ? '已支付' : '未支付') + '</div>';
-      $('reprintTicket').disabled = !paid;
-      $('reprintVoucher').disabled = !paid;
-      if (!paid) toast('该订单未支付，不能补打');
+        '<div>日期：' + esc(order.date) + '　开车：' + esc(order.departTime) + '　席别：' + esc(order.seat || order.seatType || '') + '</div>' +
+        '<div>票价：<b style="color:#1c8a4b">' + esc(order.totalPrice || order.price) + ' 绿宝石</b>　状态：' + esc(order.status) + '</div>' +
+        '<div>车票打印：' + (order.printCount ? esc(order.printCount) + ' 次' : '未打印') +
+        '　报销凭证：' + (order.voucherPrintCount ? esc(order.voucherPrintCount) + ' 次' : '未打印') +
+        '　行程信息单：' + (order.itineraryPrintCount ? esc(order.itineraryPrintCount) + ' 次' : '未打印') + '</div>';
+      setReprintButtons(paid);
+      if (!paid) toast('该订单未支付，不能补打或退改');
     }).catch(function (err) {
       state.reprintOrder = null;
       $('reprintSummary').textContent = err.message || '订单查询失败';
-      $('reprintTicket').disabled = true;
-      $('reprintVoucher').disabled = true;
+      setReprintButtons(false);
     }).finally(function () {
       $('reprintQuery').disabled = false;
     });
@@ -421,51 +702,71 @@
   function reprint(kind) {
     var order = state.reprintOrder;
     if (!order || order.status !== 'paid') return toast('请先查询一笔已支付订单');
-    if (embedded) {
-      sendEmbeddedAction(kind === 'voucher' ? 'voucher' : 'reprint', order.orderNo);
-      $('reprintMask').classList.remove('show');
-      return;
-    }
     $('reprintMask').classList.remove('show');
+    if (embedded) return sendEmbeddedAction(kind === 'voucher' ? 'voucher' : kind, order.orderNo);
     fillPrint(order, kind);
+  }
+
+  function refundOrder(order) {
+    if (!order || order.status !== 'paid') return toast('只有已支付订单才能退票');
+    if (!window.confirm('确认退票？将按发车前时间收取手续费。')) return;
+    if (embedded) return sendEmbeddedAction('refund', order.orderNo);
+    toast('请到游戏内执行：/railway refund ' + order.orderNo);
+  }
+
+  function openChange(order) {
+    if (!order || order.status !== 'paid') return toast('只有已支付订单才能改签');
+    state.changeOrder = order;
+    $('changeTrain').value = order.trainNo || '';
+    $('changeDate').value = order.date || today();
+    $('changeSeat').value = order.seat || '二等座';
+    $('changeMask').classList.add('show');
+  }
+
+  function confirmChange() {
+    var order = state.changeOrder;
+    if (!order) return;
+    var trainNo = $('changeTrain').value.trim().toUpperCase();
+    var date = $('changeDate').value;
+    var seat = $('changeSeat').value;
+    if (!trainNo || !date) return toast('请填写新车次和日期');
+    $('changeMask').classList.remove('show');
+    var payload = order.orderNo + '|' + trainNo + '|' + date + '|' + seat;
+    if (embedded) return sendEmbeddedAction('change', payload);
+    toast('请到游戏内执行：/railway change ' + order.orderNo + ' ' + trainNo + ' ' + date + ' ' + seat);
   }
 
   $('refreshBtn').addEventListener('click', loadTrains);
   if (embedded) {
     $('copyCmd').textContent = '游戏内支付';
-    $('printBtn').textContent = '打印车票';
-    $('buyHint').textContent = '乘车人信息来自放入售票机的身份证。';
+    $('buyHint').textContent = '乘车人信息可来自放入售票机的身份证。';
   }
   $('buyConfirm').addEventListener('click', createOrder);
-  $('buySeat').addEventListener('change', updateBuySummary);
-  $('copyCmd').addEventListener('click', copyCommand);
-  $('printBtn').addEventListener('click', printTicket);
-  $('voucherBtn').addEventListener('click', function () {
-    if (embedded && state.order && state.order.status === 'paid') {
-      sendEmbeddedAction('voucher', state.order.orderNo);
-      return;
-    }
-    if (state.order && state.order.status === 'paid') {
-      fillPrint(state.order, 'voucher');
-      return;
-    }
-    toast('请先生成并支付订单');
+  $('buySeat').addEventListener('change', function () { refreshBuySeats(); if ($('buyTrip').value === 'round') loadReturnTrains(); updateBuySummary(); });
+  $('buyTrip').addEventListener('change', function () {
+    $('returnField').style.display = $('buyTrip').value === 'round' ? 'block' : 'none';
+    if ($('buyTrip').value === 'round') loadReturnTrains();
+    updateBuySummary();
   });
+  $('buyReturn').addEventListener('change', updateBuySummary);
+  $('addPax').addEventListener('click', function () { if (addPaxRow('', '', '成人')) { refreshSeatSelects(); updateBuySummary(); } });
+  $('copyCmd').addEventListener('click', copyCommand);
   $('reprintOpenBtn').addEventListener('click', openReprint);
   $('reprintQuery').addEventListener('click', queryReprintOrder);
   $('reprintTicket').addEventListener('click', function () { reprint('ticket'); });
   $('reprintVoucher').addEventListener('click', function () { reprint('voucher'); });
-  $('reprintNo').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') queryReprintOrder();
-  });
+  $('reprintItinerary').addEventListener('click', function () { reprint('itinerary'); });
+  $('reprintRefund').addEventListener('click', function () { refundOrder(state.reprintOrder); });
+  $('reprintChange').addEventListener('click', function () { $('reprintMask').classList.remove('show'); openChange(state.reprintOrder); });
+  $('changeConfirm').addEventListener('click', confirmChange);
+  $('reprintNo').addEventListener('keydown', function (e) { if (e.key === 'Enter') queryReprintOrder(); });
   Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function (btn) {
-    btn.addEventListener('click', function () {
-      $(btn.getAttribute('data-close')).classList.remove('show');
-    });
+    btn.addEventListener('click', function () { $(btn.getAttribute('data-close')).classList.remove('show'); });
   });
 
   loadStations().then(loadTrains);
 })();
 </script>
+
 </body>
 </html>

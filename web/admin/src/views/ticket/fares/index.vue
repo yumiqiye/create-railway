@@ -6,7 +6,8 @@
     <div class="n-layout-page-header">
       <n-card :bordered="false" title="票价管理">
         车站通过 <code>/railway admin station &lt;站名&gt; POS1/POS2</code> 划定范围后，系统按相邻停靠站的方块距离生成每一段票价。
-        售票时按车次经停顺序累加，例如 A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价；这里填的分段票价就是游戏内二等座实际收取的金额。席别按二等座倍率换算：一等座 = 二等座 × 1.5，商务座 = 二等座 × 2（结果四舍五入取整）。
+        售票时按车次经停顺序累加，例如 A-B-C 的 A→C 票价 = A-B 段价 + B-C 段价。**两站都有中心点时坐标价优先**；只有任一站缺坐标才回退到该段手填价，长途车次缺坐标会按“已走段数/全程段数”回退该车次二等座手填价，避免异常低价。
+        席别先取整二等座基准再乘倍率：一等座 = round(round(二等座) × 1.5)，商务座 = round(round(二等座) × 2)，最后四舍五入取整。
       </n-card>
     </div>
 
@@ -57,7 +58,7 @@
           <n-input-number v-model:value="form.price" :min="0" :max="999" :precision="0" style="width: 100%" />
         </n-form-item>
         <n-alert type="info" :bordered="false">
-          默认按两站中心点距离自动生成这一段票价；手动改价后标记为“手动”，该段固定使用手动价。售票时按停站顺序累加各段，网页、POS 与游戏内支付一致。
+          默认按两站中心点距离自动生成这一段票价；两站都有坐标时代价优先，手填价仅在两站缺坐标时回退使用。POS、窗口代客购票与网页售票机走同一套计价，成交价由服务端重算。
         </n-alert>
       </n-form>
       <template #footer>
