@@ -31,7 +31,7 @@ cd "E:\新建文件夹\railway\railway-addon"
 - Gradle 插件：阿里云 `gradle-plugin`
 - 后台 npm：`web/admin/.npmrc` 已指向 `registry.npmmirror.com`
 
-产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.3.jar`。  
+产物：`build\libs\HexieRailwayAddon-1.21.1-1.0.5-BETA.1.jar`。
 每次执行 `build` 会自动把补丁号 +1（写入 `gradle.properties`），需要临时关闭时加 `-PnoVersionBump`。
 放进 `mods`，与 `CRH-HeXie-*.jar` 同目录即可。客户端想用内嵌网页，再放 MCEF（NeoForge 1.21.1，2.1.x）。
 

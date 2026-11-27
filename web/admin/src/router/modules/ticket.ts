@@ -195,6 +195,36 @@ const routes: Array<RouteRecordRaw> = [
     ],
   },
   {
+    path: '/tvms',
+    name: 'TvmsRoot',
+    redirect: '/tvms/index',
+    component: Layout,
+    meta: { title: '购票机台账', icon: renderIcon(ShoppingCartOutlined), sort: 8.2, permissions: ['ticket_tvms'] },
+    children: [
+      {
+        path: 'index',
+        name: 'ticket_tvms',
+        meta: { title: '购票机台账' },
+        component: () => import('@/views/ticket/tvms/index.vue'),
+      },
+    ],
+  },
+  {
+    path: '/blacklist',
+    name: 'BlacklistRoot',
+    redirect: '/blacklist/index',
+    component: Layout,
+    meta: { title: '乘车人黑名单', icon: renderIcon(SafetyOutlined), sort: 8.3, permissions: ['ticket_blacklist'] },
+    children: [
+      {
+        path: 'index',
+        name: 'ticket_blacklist',
+        meta: { title: '乘车人黑名单' },
+        component: () => import('@/views/ticket/blacklist/index.vue'),
+      },
+    ],
+  },
+  {
     path: '/alerts',
     name: 'AlertsRoot',
     redirect: '/alerts/index',

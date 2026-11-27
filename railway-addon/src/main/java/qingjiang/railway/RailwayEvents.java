@@ -102,7 +102,8 @@ public final class RailwayEvents {
             RailwayStore.putCard(player.level(), pos, RailwayStore.CardData.fromStack(stack));
             stack.shrink(1);
             RailwayStore.save(player.getServer());
-            openVendor(player, pos, state);
+            player.displayClientMessage(Component.literal("身份证已识别，再次右键售票机即可打开窗口")
+                    .withStyle(ChatFormatting.AQUA), true);
             return true;
         }
         if (stack.isEmpty()) {

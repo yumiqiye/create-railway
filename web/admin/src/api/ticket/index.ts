@@ -167,7 +167,7 @@ export const deleteTrain = (id: string) => Alova.Delete(`/ticket/trains/${id}`);
 export type ImportType = 'cities' | 'stations' | 'trains';
 export interface ImportMessage {
   row: number;
-  type: 'skip' | 'error';
+  type: 'skip' | 'error' | 'fail' | 'success';
   message: string;
 }
 export interface ImportResult {
@@ -179,6 +179,27 @@ export interface ImportResult {
 }
 export const importTicketData = (type: ImportType, rows: Record<string, any>[]) =>
   Alova.Post<ImportResult>(`/import/${type}`, { rows });
+
+/* ---------------- Create 时刻表导入 ---------------- */
+export interface TimetableStopInput {
+  stationName: string;
+  departTime?: string;
+  arriveTime?: string;
+  km?: number;
+}
+export interface TimetableTrainInput {
+  trainNo: string;
+  type?: string;
+  departTime?: string;
+  arriveTime?: string;
+  platform?: string;
+  gates?: string[] | string;
+  landmarkColor?: string;
+  seats?: SeatItem[] | string;
+  stops: TimetableStopInput[];
+}
+export const importTimetable = (trains: TimetableTrainInput[]) =>
+  Alova.Post<ImportResult>('/ticket/railway/admin/timetable/import', { trains });
 
 /* ---------------- 订单 ---------------- */
 export const getOrderList = (params?: { keyword?: string; status?: string }) =>
@@ -361,6 +382,11 @@ export interface SettingsItem {
   minFare?: number;
   maxFare?: number;
   railwayAdminToken?: string;
+  supplementFeeRate?: number;
+  quickBoardingMinutes?: number;
+  gateScreenEnabled?: boolean;
+  versionStage?: string;
+  metroEnabled?: boolean;
 }
 export const getSettings = () => Alova.Get<SettingsItem>('/ticket/settings');
 export const updateSettings = (data: Partial<SettingsItem>) => Alova.Put<SettingsItem>('/ticket/settings', data);
@@ -414,6 +440,41 @@ export interface RailwayStationGeo {
   updatedAt?: string;
 }
 export const getRailwayStations = () => Alova.Get<RailwayStationGeo[]>('/ticket/railway/admin/stations');
+
+export interface BlacklistEntry {
+  id: string;
+  mode: 'highspeed' | 'metro';
+  name: string;
+  idNo: string;
+  reason: string;
+  until: number;
+  source: string;
+  createdAt: string;
+}
+export const getBlacklist = (mode: 'highspeed' | 'metro' = 'highspeed') =>
+  Alova.Get<{ mode: string; rows: BlacklistEntry[] }>('/ticket/railway/admin/blacklist', { params: { mode } });
+export const addBlacklist = (mode: 'highspeed' | 'metro', data: Partial<BlacklistEntry> & { minutes?: number }) =>
+  Alova.Post<BlacklistEntry>('/ticket/railway/admin/blacklist', { ...data, mode });
+export const removeBlacklist = (mode: 'highspeed' | 'metro', id: string) =>
+  Alova.Delete<null>(`/ticket/railway/admin/blacklist/${id}`, { params: { mode } });
+
+export interface RailwayTvm {
+  id: string;
+  stationId: string;
+  stationName?: string;
+  name: string;
+  kind: string;
+  pos?: { x: number; y: number; z: number };
+  status: 'normal' | 'disabled';
+  configVersion?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+export const getRailwayTvms = () => Alova.Get<RailwayTvm[]>('/ticket/railway/admin/tvms');
+export const createRailwayTvm = (data: Partial<RailwayTvm>) => Alova.Post<RailwayTvm>('/ticket/railway/admin/tvms', data);
+export const updateRailwayTvm = (id: string, data: Partial<RailwayTvm>) =>
+  Alova.Put<RailwayTvm>(`/ticket/railway/admin/tvms/${id}`, data);
+export const deleteRailwayTvm = (id: string) => Alova.Delete<null>(`/ticket/railway/admin/tvms/${id}`);
 
 /* ---------------- 发票管理 ---------------- */
 export const getInvoiceList = (params?: { status?: string }) => Alova.Get<OrderItem[]>('/invoices', { params });

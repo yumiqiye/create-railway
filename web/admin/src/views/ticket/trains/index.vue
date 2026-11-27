@@ -27,6 +27,7 @@
         </n-space>
         <n-space>
           <n-button quaternary @click="importVisible = true">批量导入</n-button>
+          <n-button quaternary @click="timetableVisible = true">Create 时刻表导入</n-button>
           <n-button quaternary type="primary" :loading="loading" @click="loadData">刷新</n-button>
           <n-button type="primary" @click="openCreate">
             <template #icon>
@@ -200,6 +201,7 @@
     </n-drawer>
 
     <ImportModal v-model:show="importVisible" type="trains" title="批量导入车次" />
+    <TimetableImportModal v-model:show="timetableVisible" @imported="loadData" />
   </div>
 </template>
 
@@ -218,6 +220,7 @@
     type TrainItem,
   } from '@/api/ticket';
   import ImportModal from '../components/ImportModal.vue';
+  import TimetableImportModal from '../components/TimetableImportModal.vue';
   const message = useMessage();
   const dialog = useDialog();
 
@@ -229,6 +232,7 @@
   const stations = ref<StationItem[]>([]);
   const showDrawer = ref(false);
   const importVisible = ref(false);
+  const timetableVisible = ref(false);
   const isEdit = ref(false);
   const editingId = ref('');
   const editingRow = ref<TrainItem | null>(null);

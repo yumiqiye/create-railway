@@ -266,9 +266,9 @@ public final class RailwayCommands {
                 } else {
                     paper = CrhCompat.newTicketStack();
                     TicketNbt.writeTicket(paper, paperOrder, passengerName, idNo);
-                    mirrorCard(player, paperOrder, passengerName, idNo);
                 }
                 give(player, paper);
+                returnVendorCard(player, idNo, passengerName, paper, ticket);
             }
 
             if (ticket) {
@@ -437,21 +437,24 @@ public final class RailwayCommands {
         }
     }
 
-    private static void mirrorCard(ServerPlayer player, JsonObject order, String passengerName, String idNo) {
-        ItemStack paper = CrhCompat.newTicketStack();
-        TicketNbt.writeTicket(paper, order, passengerName, idNo);
+    /** 票据打印后，把售票机内身份证连同车票/凭证一起取出；本机无卡时只同步背包身份证。 */
+    private static void returnVendorCard(ServerPlayer player, String idNo, String passengerName,
+                                        ItemStack paper, boolean ticket) {
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             ItemStack stack = player.getInventory().getItem(i);
-            if (TicketNbt.isIdCard(stack) && (idNo.isBlank() || idNo.equals(TicketNbt.idCardNumber(stack)))) {
-                TicketNbt.mirrorToCard(stack, paper);
-                return;
-            }
+            if (!TicketNbt.isIdCard(stack)) continue;
+            if (!idNo.isBlank() && !idNo.equals(TicketNbt.idCardNumber(stack))) continue;
+            if (!passengerName.isBlank() && !passengerName.equals(TicketNbt.idCardName(stack))) continue;
+            if (ticket) TicketNbt.mirrorToCard(stack, paper);
+            return;
         }
-        RailwayStore.CardData data = RailwayStore.nearbyVendorCard(player.level(), player.blockPosition(), 24, idNo);
-        if (data != null) {
-            data.updateTicketFrom(paper);
-            RailwayStore.save(player.getServer());
-        }
+
+        RailwayStore.CardData data = RailwayStore.removeNearbyVendorCard(
+                player.level(), player.blockPosition(), 24, idNo, passengerName);
+        if (data == null) return;
+        if (ticket) data.updateTicketFrom(paper);
+        RailwayStore.save(player.getServer());
+        give(player, data.toStack());
     }
 
     private static void give(ServerPlayer player, ItemStack stack) {

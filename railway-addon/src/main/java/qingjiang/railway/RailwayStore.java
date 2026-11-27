@@ -336,6 +336,22 @@ public final class RailwayStore {
         return null;
     }
 
+    /** 找到并移除附近售票机内与证件号/乘客名匹配的身份证，供出票后连同票据一起取出。 */
+    public static CardData removeNearbyVendorCard(Level level, BlockPos origin, int radius, String idNo, String name) {
+        String prefix = level.dimension().location() + "@";
+        for (Map.Entry<String, CardData> entry : CARDS.entrySet()) {
+            if (!entry.getKey().startsWith(prefix)) continue;
+            BlockPos pos = BlockPos.of(Long.parseLong(entry.getKey().substring(prefix.length())));
+            if (pos.distManhattan(origin) > radius) continue;
+            CardData data = entry.getValue();
+            if (!idNo.isBlank() && !idNo.equals(data.idNo)) continue;
+            if (!name.isBlank() && !name.equals(data.name)) continue;
+            CARDS.remove(entry.getKey());
+            return data;
+        }
+        return null;
+    }
+
     /** 退出世界后清空内存，单机切换存档时会重新从新存档加载。 */
     public static synchronized void unload() {
         loaded = false;

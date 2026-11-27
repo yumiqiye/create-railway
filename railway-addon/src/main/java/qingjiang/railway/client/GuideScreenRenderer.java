@@ -170,7 +170,13 @@ public final class GuideScreenRenderer {
         float v0 = (group.rows - 1 - group.row) / (float) group.rows;
         float v1 = (group.rows - group.row) / (float) group.rows;
         RenderSystem.setShaderTexture(0, texture);
-        drawTile(poseStack, screen.getBlockPos(), facing, u0, u1, v0, v1);
+        drawTile(poseStack, screen.getBlockPos(), facing, screenScale(screen), u0, u1, v0, v1);
+    }
+
+    /** 读取方块实体上保存的屏幕缩放系数；缺失时按整屏 1.0 渲染。 */
+    private static float screenScale(GuideScreenBlockEntity screen) {
+        float scale = screen.scale();
+        return Math.max(0.5F, Math.min(1.5F, Float.isFinite(scale) ? scale : 1.0F));
     }
 
     /** 找到这块拼屏的左下角、当前方块所在的行列和整屏列数/行数；最多 16×16。 */
@@ -228,45 +234,49 @@ public final class GuideScreenRenderer {
         };
     }
 
-    private static void drawTile(PoseStack poseStack, BlockPos pos, Direction facing,
+    private static void drawTile(PoseStack poseStack, BlockPos pos, Direction facing, float scale,
                                  float u0, float u1, float v0, float v1) {
         Matrix4f matrix = poseStack.last().pose();
         BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         float eps = 0.003F;
-        float x = pos.getX();
-        float y = pos.getY();
-        float z = pos.getZ();
+        float cx = pos.getX() + 0.5F;
+        float cy = pos.getY() + 0.5F;
+        float cz = pos.getZ() + 0.5F;
+        float half = 0.5F * Math.max(0.5F, Math.min(1.5F, scale));
 
+        // 双面绘制：避免不同朝向时背面剔除把屏幕正面裁掉。
+        RenderSystem.disableCull();
         switch (facing) {
             case NORTH -> {
-                vertex(buffer, matrix, x + 1, y, z - eps, u0, v1);
-                vertex(buffer, matrix, x, y, z - eps, u1, v1);
-                vertex(buffer, matrix, x, y + 1, z - eps, u1, v0);
-                vertex(buffer, matrix, x + 1, y + 1, z - eps, u0, v0);
+                vertex(buffer, matrix, cx + half, cy - half, cz - 0.5F - eps, u0, v1);
+                vertex(buffer, matrix, cx - half, cy - half, cz - 0.5F - eps, u1, v1);
+                vertex(buffer, matrix, cx - half, cy + half, cz - 0.5F - eps, u1, v0);
+                vertex(buffer, matrix, cx + half, cy + half, cz - 0.5F - eps, u0, v0);
             }
             case SOUTH -> {
-                vertex(buffer, matrix, x, y, z + 1 + eps, u0, v1);
-                vertex(buffer, matrix, x + 1, y, z + 1 + eps, u1, v1);
-                vertex(buffer, matrix, x + 1, y + 1, z + 1 + eps, u1, v0);
-                vertex(buffer, matrix, x, y + 1, z + 1 + eps, u0, v0);
+                vertex(buffer, matrix, cx - half, cy - half, cz + 0.5F + eps, u0, v1);
+                vertex(buffer, matrix, cx + half, cy - half, cz + 0.5F + eps, u1, v1);
+                vertex(buffer, matrix, cx + half, cy + half, cz + 0.5F + eps, u1, v0);
+                vertex(buffer, matrix, cx - half, cy + half, cz + 0.5F + eps, u0, v0);
             }
             case EAST -> {
-                vertex(buffer, matrix, x + 1 + eps, y, z + 1, u0, v1);
-                vertex(buffer, matrix, x + 1 + eps, y, z, u1, v1);
-                vertex(buffer, matrix, x + 1 + eps, y + 1, z, u1, v0);
-                vertex(buffer, matrix, x + 1 + eps, y + 1, z + 1, u0, v0);
+                vertex(buffer, matrix, cx + 0.5F + eps, cy - half, cz + half, u0, v1);
+                vertex(buffer, matrix, cx + 0.5F + eps, cy - half, cz - half, u1, v1);
+                vertex(buffer, matrix, cx + 0.5F + eps, cy + half, cz - half, u1, v0);
+                vertex(buffer, matrix, cx + 0.5F + eps, cy + half, cz + half, u0, v0);
             }
             case WEST -> {
-                vertex(buffer, matrix, x - eps, y, z, u0, v1);
-                vertex(buffer, matrix, x - eps, y, z + 1, u1, v1);
-                vertex(buffer, matrix, x - eps, y + 1, z + 1, u1, v0);
-                vertex(buffer, matrix, x - eps, y + 1, z, u0, v0);
+                vertex(buffer, matrix, cx - 0.5F - eps, cy - half, cz - half, u0, v1);
+                vertex(buffer, matrix, cx - 0.5F - eps, cy - half, cz + half, u1, v1);
+                vertex(buffer, matrix, cx - 0.5F - eps, cy + half, cz + half, u1, v0);
+                vertex(buffer, matrix, cx - 0.5F - eps, cy + half, cz - half, u0, v0);
             }
             default -> {
             }
         }
         BufferUploader.drawWithShader(buffer.buildOrThrow());
+        RenderSystem.enableCull();
     }
 
     private static void vertex(BufferBuilder buffer, Matrix4f matrix, float x, float y, float z, float u, float v) {

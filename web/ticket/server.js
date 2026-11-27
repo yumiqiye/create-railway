@@ -235,6 +235,8 @@ function permissionsForRole(role) {
     ticket_trains: '车次管理',
     ticket_tickets: '车票管理',
     ticket_checkin: '检票管理',
+    ticket_tvms: '购票机台账',
+    ticket_blacklist: '乘车人黑名单',
     ticket_alerts: '告警中心',
     ticket_reports: '运营报表',
     ticket_settings: '系统设置',
@@ -1137,6 +1139,11 @@ function railwayBrand(db) {
     logoUrl: s.logoUrl || '',
     announcement: s.announcementEnabled === false ? '' : s.announcement || '',
     checkinMinutes: Number(s.checkinMinutes || 30),
+    quickBoardingMinutes: Number(s.quickBoardingMinutes || 15),
+    gateScreenEnabled: s.gateScreenEnabled !== false,
+    supplementFeeRate: Number(s.supplementFeeRate || 0.2),
+    versionStage: String(s.versionStage || 'BETA').slice(0, 16),
+    metroEnabled: s.metroEnabled === true,
     currency: s.railwayCurrency || 'emerald',
     bureau: s.railwayBureau || '清江铁路',
   };
@@ -1146,6 +1153,23 @@ function railwayStationByName(db, name) {
   const value = String(name || '').trim();
   if (!value) return null;
   return (db.stations || []).find((s) => s.name === value || s.mcName === value) || null;
+}
+
+function blacklistList(db, mode) {
+  const bucket = mode === 'metro' ? 'metro' : 'highspeed';
+  if (!db.blacklists || !Array.isArray(db.blacklists[bucket])) return [];
+  return db.blacklists[bucket];
+}
+
+function blacklistHit(db, mode, name, idNo) {
+  const now = Date.now();
+  const n = String(name || '').trim().toLowerCase();
+  const id = String(idNo || '').trim().toLowerCase();
+  return blacklistList(db, mode).some((row) => {
+    if (row.until && Number(row.until) <= now) return false;
+    if (id && String(row.idNo || '').trim().toLowerCase() === id) return true;
+    return Boolean(n) && String(row.name || '').trim().toLowerCase() === n;
+  });
 }
 
 function railwayFareKey(a, b) {
@@ -1481,9 +1505,80 @@ function normalizeTrainStops(db, input) {
       stationId: station.id,
       name: station.name,
       km: Number.isFinite(km) ? km : index,
+      departTime: String(item && item.departTime || ''),
+      arriveTime: String(item && item.arriveTime || ''),
     });
   });
   return stops.length ? stops : null;
+}
+
+/** Create 时刻表批量导入：按车次 upsert 经停序列、时刻、席别和检票口。 */
+function upsertTimetableTrain(db, body) {
+  const trainNo = String(body.trainNo || '').trim().toUpperCase();
+  if (!/^[GDCZKTLY]\d{1,4}$/.test(trainNo)) return { error: `车次号格式不正确：${trainNo || '空'}，示例 G1、D2281` };
+  const stopRows = Array.isArray(body.stops) ? body.stops : [];
+  if (stopRows.length < 2) return { error: '经停站至少需要 2 个车站' };
+  const stops = [];
+  for (let index = 0; index < stopRows.length; index += 1) {
+    const row = stopRows[index] || {};
+    const station =
+      railwayStationByName(db, String(row.stationName || row.name || '')) ||
+      findStation(db, String(row.stationId || ''));
+    if (!station) return { error: `第 ${index + 1} 个经停站不存在：${row.stationName || row.name || row.stationId || '空'}` };
+    const km = Number(row.km);
+    stops.push({
+      stationId: station.id,
+      name: station.name,
+      km: Number.isFinite(km) ? km : index,
+      departTime: String(row.departTime || '').trim(),
+      arriveTime: String(row.arriveTime || '').trim(),
+    });
+  }
+  const from = stops[0];
+  const to = stops[stops.length - 1];
+  if (from.stationId === to.stationId) return { error: '出发站与到达站不能相同' };
+  const seats = importSeats(body.seats);
+  if (seats.error) return { error: seats.error };
+  const gateInfo = normalizeTrainGates(body.gates !== undefined ? body.gates : body.gate);
+  if (gateInfo.error) return { error: gateInfo.error };
+  const platform = String(body.platform || '1').trim();
+  if (!/^[0-9A-Za-z-]{1,10}$/.test(platform)) return { error: `站台号格式不正确：${platform}` };
+  const landmarkColor = String(body.landmarkColor || '蓝色').trim();
+  const COLORS = ['蓝色', '黄色', '绿色', '紫色', '红色', '白色'];
+  if (!COLORS.includes(landmarkColor)) return { error: `地标颜色需为：${COLORS.join(' / ')}` };
+
+  const departTime = String(body.departTime || stops[0].departTime || '').trim();
+  const arriveTime = String(body.arriveTime || stops[stops.length - 1].arriveTime || '').trim();
+  if (!isValidTime(departTime)) return { error: `出发时刻格式应为 HH:MM：${departTime || '空'}` };
+  if (!isValidTime(arriveTime)) return { error: `到达时刻格式应为 HH:MM：${arriveTime || '空'}` };
+
+  let train = (db.trains || []).find((t) => t.trainNo === trainNo);
+  if (!train) {
+    train = {
+      id: newId('t'),
+      trainNo,
+      status: 'normal',
+      delayMinutes: 0,
+      tempGates: [],
+      tempGate: '',
+      tempPlatform: '',
+      runtimeNote: '',
+      runtimeByDate: {},
+    };
+    db.trains.push(train);
+  }
+  train.type = String(body.type || train.type || '高速动车').trim();
+  train.fromStationId = from.stationId;
+  train.toStationId = to.stationId;
+  train.departTime = departTime;
+  train.arriveTime = arriveTime;
+  train.platform = platform;
+  train.gates = gateInfo.gates;
+  train.gate = gateInfo.gate;
+  train.landmarkColor = landmarkColor;
+  train.seats = seats.list;
+  train.stops = stops;
+  return { train };
 }
 
 function expirePendingOrders(db) {
@@ -2085,6 +2180,8 @@ async function route(req, res, pathname, query) {
       if (new Set(normalized.map((p) => p.idNo)).size !== normalized.length) {
         return fail(res, 400, '乘客证件号不能重复');
       }
+      const blocked = normalized.find((p) => blacklistHit(db, 'highspeed', p.name, p.idNo));
+      if (blocked) return fail(res, 403, `乘客 ${blocked.name} 已被列入高铁黑名单，禁止购票`);
       const priced = normalized.map((p) => ({
         ...p,
         price: passengerPrice({ ...seat, price: basePrice }, p.type, settings),
@@ -2754,6 +2851,121 @@ async function route(req, res, pathname, query) {
           return ok(res, s, '铁路设置已保存，自动票价已按新系数重算');
         }
       }
+
+      /* 乘车人黑名单：高铁 / 地铁分桶管理 */
+      if (third === 'blacklist') {
+        const mode = fourth ? String(query.mode || 'highspeed') : 'highspeed';
+        const bucket = blacklistList(db, mode);
+        if (method === 'GET') {
+          return ok(res, { mode: bucket === db.blacklists.metro ? 'metro' : 'highspeed', rows: bucket });
+        }
+        if (method === 'POST') {
+          const body = await readBody(req);
+          const name = String(body.name || '').trim();
+          const idNo = String(body.idNo || '').trim().toUpperCase();
+          if (!name && !idNo) return fail(res, 400, '姓名或证件号至少填写一项');
+          const minutes = Math.min(43200, Math.max(0, Number(body.minutes) || 0));
+          const row = {
+            id: newId('bl'),
+            mode: bucket === db.blacklists.metro ? 'metro' : 'highspeed',
+            name,
+            idNo,
+            reason: String(body.reason || '管理员手动封禁').slice(0, 80),
+            until: minutes > 0 ? Date.now() + minutes * 60 * 1000 : 0,
+            source: String(body.source || 'admin').slice(0, 20),
+            createdAt: new Date().toISOString(),
+          };
+          bucket.push(row);
+          addLog(db, { action: 'railway.blacklist.add', actor: 'admin', role: 'admin', target: row.idNo || row.name, detail: `${row.mode}黑名单：${row.name || row.idNo}`, level: 'warn' });
+          saveDB();
+          return ok(res, row, '黑名单已添加');
+        }
+        if (method === 'DELETE' && fourth) {
+          const before = bucket.length;
+          db.blacklists[bucket === db.blacklists.metro ? 'metro' : 'highspeed'] = bucket.filter((row) => row.id !== fourth);
+          if (bucket.length === before) return fail(res, 404, '黑名单记录不存在');
+          addLog(db, { action: 'railway.blacklist.remove', actor: 'admin', role: 'admin', target: fourth, detail: '解除乘车人黑名单', level: 'info' });
+          saveDB();
+          return ok(res, null, '已解除黑名单');
+        }
+        return fail(res, 405, '不支持的请求方法');
+      }
+
+      /* 售票机 / 购票机后台台账 */
+      if (third === 'tvms') {
+        if (method === 'GET') {
+          return ok(res, (db.tvms || []).map((tvm) => {
+            const station = findStation(db, tvm.stationId);
+            return { ...tvm, stationName: station ? station.name : '' };
+          }));
+        }
+        if (method === 'POST') {
+          const body = await readBody(req);
+          const station = findStation(db, String(body.stationId || ''));
+          if (!station) return fail(res, 400, '车站不存在');
+          const pos = body.pos && typeof body.pos === 'object' ? body.pos : null;
+          const tvm = {
+            id: newId('tvm'),
+            stationId: station.id,
+            name: String(body.name || station.name + '购票机').trim().slice(0, 30),
+            kind: body.kind === 'tvm' ? 'tvm' : 'ticket-machine',
+            pos,
+            status: body.status === 'disabled' ? 'disabled' : 'normal',
+            configVersion: 0,
+            createdAt: new Date().toISOString(),
+          };
+          db.tvms.push(tvm);
+          saveDB();
+          return ok(res, tvm, '购票机已登记');
+        }
+        if (method === 'PUT' && fourth) {
+          const tvm = (db.tvms || []).find((item) => item.id === fourth);
+          if (!tvm) return fail(res, 404, '购票机不存在');
+          const body = await readBody(req);
+          if (body.stationId !== undefined) {
+            const station = findStation(db, String(body.stationId));
+            if (!station) return fail(res, 400, '车站不存在');
+            tvm.stationId = station.id;
+          }
+          if (body.name !== undefined) tvm.name = String(body.name).trim().slice(0, 30);
+          if (body.status !== undefined) tvm.status = body.status === 'disabled' ? 'disabled' : 'normal';
+          if (body.pos !== undefined && typeof body.pos === 'object') tvm.pos = body.pos;
+          tvm.configVersion = Number(tvm.configVersion || 0) + 1;
+          tvm.updatedAt = new Date().toISOString();
+          saveDB();
+          return ok(res, tvm, '购票机配置已更新');
+        }
+        if (method === 'DELETE' && fourth) {
+          const before = (db.tvms || []).length;
+          db.tvms = (db.tvms || []).filter((item) => item.id !== fourth);
+          if (db.tvms.length === before) return fail(res, 404, '购票机不存在');
+          saveDB();
+          return ok(res, null, '购票机已删除');
+        }
+        return fail(res, 405, '不支持的请求方法');
+      }
+      /* Create 时刻表批量导入：JSON 按车次携带完整经停序列 */
+      if (third === 'timetable' && fourth === 'import' && method === 'POST') {
+        const body = await readBody(req);
+        const rows = Array.isArray(body.trains) ? body.trains : Array.isArray(body) ? body : [];
+        if (!rows.length) return fail(res, 400, '请至少提交一条车次时刻表');
+        if (rows.length > 200) return fail(res, 400, '单次最多导入 200 条车次');
+        const messages = [];
+        let imported = 0;
+        let failed = 0;
+        rows.forEach((row, index) => {
+          const built = upsertTimetableTrain(db, row || {});
+          if (built.error) {
+            failed += 1;
+            messages.push({ row: index + 1, type: 'fail', message: built.error });
+            return;
+          }
+          imported += 1;
+          messages.push({ row: index + 1, type: 'success', message: `${built.train.trainNo} 已更新` });
+        });
+        saveDB();
+        return ok(res, { total: rows.length, imported, failed, messages });
+      }
       return fail(res, 404, '铁路管理接口不存在');
     }
 
@@ -3375,6 +3587,22 @@ async function route(req, res, pathname, query) {
         if (!Number.isInteger(v) || v < 5 || v > 120) return fail(res, 400, '开检提前分钟数需为 5~120 的整数');
         next.checkinMinutes = v;
       }
+      if (body.supplementFeeRate !== undefined) {
+        const v = Number(body.supplementFeeRate);
+        if (!Number.isFinite(v) || v < 0 || v > 1) return fail(res, 400, '补票费率需在 0~1 之间');
+        next.supplementFeeRate = v;
+      }
+      if (body.quickBoardingMinutes !== undefined) {
+        const v = Number(body.quickBoardingMinutes);
+        if (!Number.isInteger(v) || v < 1 || v > 60) return fail(res, 400, '快开车提示分钟数需为 1~60 的整数');
+        next.quickBoardingMinutes = v;
+      }
+      if (body.gateScreenEnabled !== undefined) next.gateScreenEnabled = Boolean(body.gateScreenEnabled);
+      if (body.metroEnabled !== undefined) next.metroEnabled = Boolean(body.metroEnabled);
+      if (body.versionStage !== undefined) {
+        const v = String(body.versionStage).trim().slice(0, 16);
+        next.versionStage = v || 'BETA';
+      }
       /* 铁路品牌与模组票价参数 */
       if (body.systemName !== undefined) {
         const v = String(body.systemName).trim();
@@ -3855,6 +4083,10 @@ async function route(req, res, pathname, query) {
       );
       if (normalized.error) return fail(res, 400, normalized.error);
       const passenger = normalized.value;
+
+      if (blacklistHit(db, 'highspeed', passenger.name, passenger.idNo)) {
+        return fail(res, 403, `乘客 ${passenger.name} 已被列入高铁黑名单，禁止补票`);
+      }
 
       let originalPassenger = null;
       if (isLost) {

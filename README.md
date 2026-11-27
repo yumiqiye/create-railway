@@ -21,7 +21,7 @@ cd railway-addon
 gradlew.bat build
 ```
 
-产物：`railway-addon/build/libs/HexieRailwayAddon-1.21.1-1.0.3.jar`。每次 `build` 自动递增补丁版本，`-PnoVersionBump` 可临时关闭。
+产物：`railway-addon/build/libs/HexieRailwayAddon-1.21.1-1.0.5-BETA.1.jar`。每次 `build` 自动递增补丁版本，`-PnoVersionBump` 可临时关闭。
 
 网页端安装 MCEF（`mcef-neoforge`）后，售票机与车站引导屏可在游戏内直接渲染网页；未安装时回退为普通界面/深色屏体。
 
@@ -51,3 +51,6 @@ pnpm dev
 
 - [附属详细说明](README-铁路票务附属.md)
 - [网页系统说明](web/README.md)
+- [API 接口说明](API.md)
+- [变更记录](CHANGELOG.md)
+- [需求清单落地状态](docs/需求清单落地状态.md)

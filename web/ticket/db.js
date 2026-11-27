@@ -38,9 +38,14 @@ const DEFAULT_SETTINGS = {
     { hoursBefore: 0, feeRate: 0.2 },
   ],
   changeFeeRate: 0.05,
+  supplementFeeRate: 0.2,
   childDiscount: 0.5,
   studentDiscount: 0.75,
   checkinMinutes: 30,
+  quickBoardingMinutes: 15,
+  gateScreenEnabled: true,
+  versionStage: 'BETA',
+  metroEnabled: false,
   // 闸机显示：入站 / 出站欢迎语，{station} 会替换为检票端选择的站名
   entryWelcomeText: '欢迎光临{station}',
   exitWelcomeText: '欢迎您再次乘坐清江铁路12306',
@@ -104,6 +109,8 @@ function buildSeed() {
     ],
     fares: [],
     tvms: [],
+    blacklists: { highspeed: [], metro: [] },
+    metroCards: [],
     security: { ...DEFAULT_SECURITY },
     logs: [],
     checkinEvents: [],
@@ -141,6 +148,10 @@ function normalize(db) {
   }
   if (!Array.isArray(db.fares)) db.fares = [];
   if (!Array.isArray(db.tvms)) db.tvms = [];
+  if (!db.blacklists || typeof db.blacklists !== 'object') db.blacklists = { highspeed: [], metro: [] };
+  if (!Array.isArray(db.blacklists.highspeed)) db.blacklists.highspeed = [];
+  if (!Array.isArray(db.blacklists.metro)) db.blacklists.metro = [];
+  if (!Array.isArray(db.metroCards)) db.metroCards = [];
   if (!Array.isArray(db.accounts) || !db.accounts.length) db.accounts = defaultAccounts();
   db.settings = { ...seed.settings, ...(db.settings || {}) };
   delete db.settings.gateStationName;
