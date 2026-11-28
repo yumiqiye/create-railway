@@ -3,39 +3,37 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
 }
 
-// 每次执行 build 自动调整版本号：
+// 每次打包构建自动调整版本号，避免反复复用同一个版本号：
 // - 稳定版 1.0.6 -> 1.0.7；
 // - Beta 版 1.0.6-BETA.1 -> .2 -> .3 -> .4 -> .5；
-// - BETA.5 再构建时回到稳定版 1.0.7。
-// 需要临时关闭时加 -PnoVersionBump。
-def autoVersionBump = gradle.startParameter.taskNames.any { it == 'build' || it.endsWith(':build') }
-        && !project.hasProperty('noVersionBump')
-def effectiveVersion = mod_version
-if (autoVersionBump) {
-    def matcher = mod_version =~ /^(\d+)\.(\d+)\.(\d+)(?:-BETA\.(\d+))?$/
-    if (matcher.matches()) {
-        def major = matcher.group(1)
-        def minor = matcher.group(2)
-        def patch = matcher.group(3).toInteger()
-        def betaText = matcher.group(4)
-        String nextVersion
-        if (betaText != null) {
-            def beta = betaText.toInteger()
-            if (beta >= 5) {
-                nextVersion = "${major}.${minor}.${patch + 1}"
-            } else {
-                nextVersion = "${major}.${minor}.${patch}-BETA.${beta + 1}"
-            }
-        } else {
-            nextVersion = "${major}.${minor}.${patch + 1}"
-        }
-        def propsFile = file('gradle.properties')
-        def propsText = propsFile.getText('UTF-8')
-        propsFile.setText(propsText.replaceAll(/(?m)^mod_version=.*$/, "mod_version=${nextVersion}"), 'UTF-8')
-        effectiveVersion = nextVersion
-        logger.lifecycle("Auto version bump: ${mod_version} -> ${nextVersion}")
+// - BETA.5 再打包时回到稳定版 1.0.7。
+// 触发任务：build / assemble / jar（出 Jar 的打包任务）；compileJava、runClient、runServer 不递增。
+// 需要临时关闭递增时加 -PnoVersionBump。
+def versionBumpTasks = ['build', 'assemble', 'jar']
+def wantsVersionBump = gradle.startParameter.taskNames.any { tn ->
+    versionBumpTasks.any { t -> tn == t || tn.endsWith(':' + t) }
+} && !project.hasProperty('noVersionBump')
+
+def versionMatcher = mod_version =~ /^(\d+)\.(\d+)\.(\d+)(?:-BETA\.(\d+))?$/
+String nextVersion = mod_version
+if (wantsVersionBump && versionMatcher.matches()) {
+    def major = versionMatcher.group(1)
+    def minor = versionMatcher.group(2)
+    def patch = versionMatcher.group(3).toInteger()
+    def betaText = versionMatcher.group(4)
+    if (betaText != null) {
+        def beta = betaText.toInteger()
+        nextVersion = beta >= 5
+                ? "${major}.${minor}.${patch + 1}"
+                : "${major}.${minor}.${patch}-BETA.${beta + 1}"
+    } else {
+        nextVersion = "${major}.${minor}.${patch + 1}"
     }
+    logger.lifecycle("Auto version bump: ${mod_version} -> ${nextVersion}")
+} else if (wantsVersionBump) {
+    logger.lifecycle("Version bump skipped: unrecognized version format '${mod_version}'")
 }
+def effectiveVersion = nextVersion
 
 version = effectiveVersion
 group = mod_group_id
@@ -122,4 +120,14 @@ tasks.named('jar', Jar).configure {
             'Implementation-Version': project.version,
             'Implementation-Vendor': 'Qingjiang Railway'
     ])
+    // Jar 成功生成后才把新版本号写回 gradle.properties，构建失败不会留下空跳号。
+    doLast {
+        def propsFile = file('gradle.properties')
+        def propsText = propsFile.getText('UTF-8')
+        def updated = propsText.replaceAll(/(?m)^mod_version=.*$/, "mod_version=${nextVersion}")
+        if (updated != propsText) {
+            propsFile.setText(updated, 'UTF-8')
+            logger.lifecycle("Persisted version ${nextVersion} to gradle.properties")
+        }
+    }
 }
