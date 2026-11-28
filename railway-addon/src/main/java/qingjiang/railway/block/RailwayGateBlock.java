@@ -33,24 +33,27 @@ public class RailwayGateBlock extends Block {
                 .setValue(OPEN, false));
     }
 
+    /** 像素(0~16)换算为方块坐标(0~1)的系数。 */
+    private static final double P = 1.0 / 16.0;
+
     /** 固定箱体：两侧立柱/机身，无论开关都保留碰撞。 */
     private static VoxelShape fixedShape(Direction facing) {
         if (facing.getAxis() == Direction.Axis.Z) {
             return Shapes.or(
-                    Shapes.box(0.0, 0.0, 0.0, 3.5, 14.0, 16.0),
-                    Shapes.box(12.5, 0.0, 0.0, 16.0, 14.0, 16.0));
+                    Shapes.box(0, 0, 0, 3.5 * P, 14 * P, 1),
+                    Shapes.box(12.5 * P, 0, 0, 1, 14 * P, 1));
         }
         return Shapes.or(
-                Shapes.box(0.0, 0.0, 0.0, 16.0, 14.0, 3.5),
-                Shapes.box(0.0, 0.0, 12.5, 16.0, 14.0, 16.0));
+                Shapes.box(0, 0, 0, 1, 14 * P, 3.5 * P),
+                Shapes.box(0, 0, 12.5 * P, 1, 14 * P, 1));
     }
 
     /** 活动门栏：关闭时横在通道中间阻挡，放行后随 OPEN 消失。 */
     private static VoxelShape gateBarShape(Direction facing) {
         if (facing.getAxis() == Direction.Axis.Z) {
-            return Shapes.box(3.5, 5.0, 9.25, 12.5, 10.0, 9.75);
+            return Shapes.box(3.5 * P, 5 * P, 9.25 * P, 12.5 * P, 10 * P, 9.75 * P);
         }
-        return Shapes.box(9.25, 5.0, 3.5, 9.75, 10.0, 12.5);
+        return Shapes.box(9.25 * P, 5 * P, 3.5 * P, 9.75 * P, 10 * P, 12.5 * P);
     }
 
     private static VoxelShape shape(BlockState state) {
