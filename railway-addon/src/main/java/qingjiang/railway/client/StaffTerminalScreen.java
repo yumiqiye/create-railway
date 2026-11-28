@@ -8,21 +8,25 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.MenuAccess;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 import qingjiang.railway.RailwayConfig;
+import qingjiang.railway.UrlConfigService;
 import qingjiang.railway.menu.StaffTerminalMenu;
 import qingjiang.railway.network.StaffResultPayload;
 
 /**
- * 人工终端：POS/电脑/检票机直接内嵌 8001 后台网页。
- * 不绘制自定义操作界面，鼠标与键盘事件全部转发给 MCEF。
+ * 人工终端：电脑/检票机直接内嵌 8001 后台网页。
+ * 刻意使用普通 {@link Screen}，不使用 AbstractContainerScreen，避免 JEI 把它识别成容器界面并在右侧弹出配方面板。
  */
-public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMenu> {
+public class StaffTerminalScreen extends Screen implements MenuAccess<StaffTerminalMenu> {
+    private final StaffTerminalMenu menu;
+    private final String customUrl;
     private int px;
     private int py;
     private int pw;
@@ -35,7 +39,25 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
     private int lastMouseY = -1;
 
     public StaffTerminalScreen(StaffTerminalMenu menu, Inventory inventory, Component title) {
-        super(menu, inventory, title);
+        super(title);
+        this.menu = menu;
+        String raw = title.getString();
+        String[] parts = raw.split("\u0001", -1);
+        this.customUrl = parts.length >= 4 ? parts[3] : "";
+    }
+
+    @Override
+    public StaffTerminalMenu getMenu() {
+        return menu;
+    }
+
+    @Override
+    public void onClose() {
+        if (this.minecraft != null && this.minecraft.player != null) {
+            this.minecraft.player.closeContainer();
+        } else {
+            super.onClose();
+        }
     }
 
     /** 兼容旧的人工服务返回包；网页模式不再在客户端显示状态文字。 */
@@ -53,18 +75,34 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
     }
 
     private String pageUrl() {
+        if (!customUrl.isBlank()) return resolveUrl(customUrl, isCustomPage());
+        if (isCustomPage()) return UrlConfigService.DEFAULT_URL;
         String base = RailwayConfig.adminBaseUrl();
         return switch (menu.mode()) {
-            case 1 -> base + "/sales/index";
             case 2 -> base + "/checkin/index";
+            case 3 -> base + "/";
             default -> base + "/";
         };
     }
 
+    /** 平板 / 电视：展示玩家配置的自定义网页；电脑 / 检票机：绑定后台终端页。 */
+    private boolean isCustomPage() {
+        int m = menu.mode();
+        return m == 4 || m == 5;
+    }
+
+    private static String resolveUrl(String url, boolean custom) {
+        if (url.startsWith("http://") || url.startsWith("https://")) return url;
+        String base = custom ? RailwayConfig.baseUrl() : RailwayConfig.adminBaseUrl();
+        return url.startsWith("/") ? base + url : base + "/" + url;
+    }
+
     private String pageTitle() {
         return switch (menu.mode()) {
-            case 1 -> "手持 POS · 8001 后台";
             case 2 -> "人工检票机 · 8001 后台";
+            case 3 -> "车载调度屏 · 8001 后台";
+            case 4 -> "手持平板 · 自定义网页";
+            case 5 -> "世界电视 · 自定义网页";
             default -> "铁路电脑 · 8001 后台";
         };
     }
@@ -109,11 +147,6 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
             return;
         }
         renderFallback(graphics);
-    }
-
-    @Override
-    protected void renderBg(GuiGraphics graphics, float partialTick, int mouseX, int mouseY) {
-        // 网页终端完全自绘。
     }
 
     private static void drawTexture(GuiGraphics graphics, int texture, int x, int y, int width, int height) {
@@ -161,6 +194,7 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
             if (bx >= 0 && by >= 0) {
                 McefBridge.mouseMove(browser, bx, by);
                 McefBridge.mousePress(browser, bx, by, button);
+                McefBridge.setFocus(browser, true);
                 return true;
             }
         }
@@ -173,6 +207,7 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
             int bx = toBrowserX(mouseX);
             int by = toBrowserY(mouseY);
             McefBridge.mouseRelease(browser, bx < 0 ? 0 : bx, by < 0 ? 0 : by, button);
+            McefBridge.setFocus(browser, true);
             return true;
         }
         return super.mouseReleased(mouseX, mouseY, button);
@@ -205,6 +240,7 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
         if (browser != null) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) return super.keyPressed(keyCode, scanCode, modifiers);
             McefBridge.keyPress(browser, keyCode, scanCode, modifiers);
+            McefBridge.setFocus(browser, true);
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -214,6 +250,7 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
     public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
         if (browser != null) {
             McefBridge.keyRelease(browser, keyCode, scanCode, modifiers);
+            McefBridge.setFocus(browser, true);
             return true;
         }
         return super.keyReleased(keyCode, scanCode, modifiers);
@@ -223,6 +260,7 @@ public class StaffTerminalScreen extends AbstractContainerScreen<StaffTerminalMe
     public boolean charTyped(char codePoint, int modifiers) {
         if (browser != null) {
             McefBridge.keyTyped(browser, codePoint, modifiers);
+            McefBridge.setFocus(browser, true);
             return true;
         }
         return super.charTyped(codePoint, modifiers);

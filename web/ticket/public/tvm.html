@@ -91,6 +91,7 @@
     <select id="stationSelect"></select>
     <button class="btn ghost" id="refreshBtn">刷新车次</button>
     <button class="btn gold" id="reprintOpenBtn">订单服务 / 补打</button>
+    <button class="btn ghost" id="metroRechargeOpenBtn" style="display:none">储值卡充值</button>
     <span style="margin-left:auto;font-size:13px;color:#7b8798">支持选座、多乘客、儿童/学生票、往返、退票与改签</span>
   </div>
   <div class="trains" id="trainList"><div class="empty">正在加载车次…</div></div>
@@ -154,6 +155,27 @@
   </div>
 </div>
 
+<!-- 地铁储值卡充值 -->
+<div class="mask" id="metroMask">
+  <div class="dialog mid">
+    <h2>地铁储值卡充值</h2>
+    <div class="hint">请将地铁储值卡放在背包中；充值成功后游戏内卡片余额会自动同步。</div>
+    <div class="orderbox" id="metroCardSummary">未读取到储值卡。</div>
+    <div class="field"><label>充值金额（元）</label><input id="metroAmount" type="number" min="1" step="1" placeholder="如 20" /></div>
+    <div class="pax-head">
+      <span>快捷金额</span>
+      <button class="btn ghost" type="button" data-amount="10">10</button>
+      <button class="btn ghost" type="button" data-amount="20">20</button>
+      <button class="btn ghost" type="button" data-amount="50">50</button>
+      <button class="btn ghost" type="button" data-amount="100">100</button>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" data-close="metroMask">取消</button>
+      <button class="btn gold" id="metroRechargeConfirm">确认充值</button>
+    </div>
+  </div>
+</div>
+
 <!-- 改签 -->
 <div class="mask" id="changeMask">
   <div class="dialog">
@@ -200,9 +222,14 @@
     childDiscount: 0.5,
     studentDiscount: 0.75,
     maxPax: 5,
+    metroEnabled: false,
+    metroStation: false,
+    metroCard: null,
   };
   var presetName = qs('name');
   var presetIdNo = qs('idNo');
+  var presetMetroCardNo = qs('metroCardNo');
+  var presetMetroBalance = qs('metroBalance');
   var embedded = qs('embed') === '1';
 
   function qs(name) {
@@ -256,6 +283,9 @@
       if (data.logoUrl) $('logo').src = data.logoUrl;
       $('stationLine').innerHTML = '当前车站<br><b style="font-size:18px">' + esc((data.station && data.station.name) || state.station) + '</b>';
       state.trains = data.trains || [];
+      state.metroEnabled = data.metroEnabled === true;
+      state.metroStation = data.metroStation === true;
+      $('metroRechargeOpenBtn').style.display = (state.metroEnabled && state.metroStation) ? 'inline-block' : 'none';
       state.childDiscount = Number(data.childDiscount) || 0.5;
       state.studentDiscount = Number(data.studentDiscount) || 0.75;
       state.maxPax = Number(data.maxPassengersPerOrder) || 5;
@@ -628,8 +658,8 @@
 
   function sendEmbeddedAction(action, payload) {
     location.hash = action + '=' + encodeURIComponent(payload) + '&' + Date.now();
-    var command = action === 'reprint' ? 'reprint' : action;
-    toast('已发送游戏内指令：/railway ' + command + ' ' + payload);
+    var command = action === 'metroRecharge' ? 'metro card recharge' : ('railway ' + action);
+    toast('已发送游戏内指令：/' + command + ' ' + payload);
   }
 
   function copyCommand() {
@@ -659,6 +689,52 @@
       : (order.idNo || '').replace(/^(.{4}).*(.{4})$/, '$1**********$2');
     toast('正在生成' + label + '打印预览。');
     window.print();
+  }
+
+  function renderMetroCardSummary() {
+    var card = state.metroCard;
+    if (!card) {
+      $('metroCardSummary').textContent = presetMetroCardNo
+        ? '储值卡 ' + esc(presetMetroCardNo) + ' 在后台不存在或已注销。'
+        : '未读取到背包中的地铁储值卡，请先持有储值卡再打开售票机。';
+      return;
+    }
+    $('metroCardSummary').innerHTML =
+      '<div>卡号：<b>' + esc(card.cardNo) + '</b></div>' +
+      '<div>持有人：' + esc(card.playerName || '-') + '</div>' +
+      '<div>当前余额：<b style="color:#1c8a4b">' + esc(card.balance) + ' 元</b>　押金：' + esc(card.deposit || 0) + ' 元</div>';
+  }
+
+  function loadMetroCard() {
+    state.metroCard = null;
+    if (!presetMetroCardNo) { renderMetroCardSummary(); return; }
+    api('/railway/metro/cards?cardNo=' + encodeURIComponent(presetMetroCardNo)).then(function (data) {
+      state.metroCard = (data.cards || [])[0] || null;
+      renderMetroCardSummary();
+    }).catch(function (err) {
+      state.metroCard = { cardNo: presetMetroCardNo, playerName: '', balance: presetMetroBalance || 0, deposit: 0 };
+      renderMetroCardSummary();
+    });
+  }
+
+  function openMetroRecharge() {
+    if (!state.metroEnabled || !state.metroStation) return;
+    loadMetroCard();
+    $('metroAmount').value = '';
+    $('metroMask').classList.add('show');
+  }
+
+  function confirmMetroRecharge() {
+    var amount = Number($('metroAmount').value);
+    if (!presetMetroCardNo) return toast('背包中没有地铁储值卡');
+    if (!Number.isFinite(amount) || amount <= 0) return toast('充值金额必须大于 0');
+    $('metroMask').classList.remove('show');
+    if (embedded) {
+      sendEmbeddedAction('metroRecharge', String(amount));
+      window.setTimeout(function () { location.reload(); }, 1200);
+    } else {
+      toast('请到游戏内执行：/metro card recharge ' + amount);
+    }
   }
 
   function openReprint() {
@@ -752,6 +828,11 @@
   $('addPax').addEventListener('click', function () { if (addPaxRow('', '', '成人')) { refreshSeatSelects(); updateBuySummary(); } });
   $('copyCmd').addEventListener('click', copyCommand);
   $('reprintOpenBtn').addEventListener('click', openReprint);
+  $('metroRechargeOpenBtn').addEventListener('click', openMetroRecharge);
+  $('metroRechargeConfirm').addEventListener('click', confirmMetroRecharge);
+  Array.prototype.forEach.call(document.querySelectorAll('[data-amount]'), function (btn) {
+    btn.addEventListener('click', function () { $('metroAmount').value = btn.getAttribute('data-amount'); });
+  });
   $('reprintQuery').addEventListener('click', queryReprintOrder);
   $('reprintTicket').addEventListener('click', function () { reprint('ticket'); });
   $('reprintVoucher').addEventListener('click', function () { reprint('voucher'); });

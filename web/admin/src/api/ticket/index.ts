@@ -476,6 +476,49 @@ export const updateRailwayTvm = (id: string, data: Partial<RailwayTvm>) =>
   Alova.Put<RailwayTvm>(`/ticket/railway/admin/tvms/${id}`, data);
 export const deleteRailwayTvm = (id: string) => Alova.Delete<null>(`/ticket/railway/admin/tvms/${id}`);
 
+/* ---------------- Create / CRN / Simurail 兼容桥 ---------------- */
+export interface CompatTrainSnapshot {
+  externalId: string;
+  trainNo: string;
+  line?: string;
+  category?: string;
+  state?: string;
+  destination?: string;
+  currentStation?: string;
+  nextStation?: string;
+}
+export interface CompatStationSnapshot {
+  externalId: string;
+  name: string;
+  platform?: string;
+}
+export interface CompatSourceStatus {
+  lastSyncAt?: string;
+  lastError?: string;
+  trainCount?: number;
+  stationCount?: number;
+  trains?: CompatTrainSnapshot[];
+  stations?: CompatStationSnapshot[];
+  note?: string;
+}
+export interface CompatStatus {
+  settings: {
+    enabled: boolean;
+    crnApiBase: string;
+    simurailApiBase: string;
+    pullIntervalSeconds: number;
+  };
+  create: CompatSourceStatus;
+  crn: CompatSourceStatus;
+  simurail: CompatSourceStatus;
+}
+export const getRailwayCompat = () => Alova.Get<CompatStatus>('/ticket/railway/admin/compat');
+export const pullRailwayCompat = (source: 'create' | 'crn' | 'simurail') =>
+  Alova.Post<CompatSourceStatus>(`/ticket/railway/admin/compat/pull`, {}, { params: { source } });
+export const pushRailwayCompat = () => Alova.Post<{ pushedAt: string; stations: number; trains: number }>(
+  '/ticket/railway/admin/compat/push',
+);
+
 /* ---------------- 发票管理 ---------------- */
 export const getInvoiceList = (params?: { status?: string }) => Alova.Get<OrderItem[]>('/invoices', { params });
 export const redFlushInvoice = (orderNo: string, reason?: string) =>

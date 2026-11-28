@@ -20,6 +20,7 @@ public final class McefBridge {
     private static Method sendKeyRelease;
     private static Method sendKeyTyped;
     private static Method getURL;
+    private static Method setFocus;
 
     private McefBridge() {}
 
@@ -35,6 +36,7 @@ public final class McefBridge {
             close = browserClass.getMethod("close");
             getRenderer = browserClass.getMethod("getRenderer");
             getURL = browserClass.getMethod("getURL");
+            setFocus = browserClass.getMethod("setFocus", boolean.class);
             sendMouseMove = browserClass.getMethod("sendMouseMove", int.class, int.class);
             sendMousePress = browserClass.getMethod("sendMousePress", int.class, int.class, int.class);
             sendMouseRelease = browserClass.getMethod("sendMouseRelease", int.class, int.class, int.class);
@@ -91,6 +93,11 @@ public final class McefBridge {
         } catch (Throwable ignored) {
             return "";
         }
+    }
+
+    /** 让内嵌浏览器获得/失去焦点；未获焦点时网页链接与按钮不响应点击。 */
+    public static void setFocus(Object browser, boolean focus) {
+        invoke(setFocus, browser, focus);
     }
 
     public static int textureId(Object browser) {

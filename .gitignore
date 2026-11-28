@@ -46,12 +46,23 @@ web/ticket/*.db
 web/ticket/*.sqlite
 web/ticket/*.sqlite3
 web/shared/data/
-web/check/data/
+web/check/
 
 # 上游源码与打包备份
 CRH-HeXie-main/
 CRH-HeXie-main.zip
 .cmd-test/
+
+# 上游调度模组源码与打包备份（能力已内置进本模组）
+pyrail-dispatch/
+pyrail-repack/
+PyRailDispatch-*.zip
+
+# 本地诊断清单与截图、散落 Logo
+mc-1.21.1.json
+mc-manifest.json
+docs/*.jpg
+LOGO*.png
 
 # 操作系统与 IDE
 .DS_Store

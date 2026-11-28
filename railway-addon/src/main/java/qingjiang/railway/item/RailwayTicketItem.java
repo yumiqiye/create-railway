@@ -9,7 +9,7 @@ import net.minecraft.world.item.TooltipFlag;
 
 import java.util.List;
 
-/** CRH 未安装时的兜底车票物品；安装 CRH 时优先发放 hexie:red_ticket。 */
+/** 本模组自带铁路电子客票物品。 */
 public class RailwayTicketItem extends Item {
     public RailwayTicketItem(Properties properties) {
         super(properties);

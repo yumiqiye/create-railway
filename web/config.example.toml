@@ -10,7 +10,7 @@ port = 8001
 host = "127.0.0.1"
 
 [railway]
-# 必须与模组 config/hexie_railway-common.toml 的 web.adminToken 保持一致
+# 必须与模组 config/railway_plus-common.toml 的 web.adminToken 保持一致
 adminToken = "change-me"
 currency = "emerald"
 

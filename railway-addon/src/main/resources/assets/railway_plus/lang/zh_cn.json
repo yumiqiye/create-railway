@@ -1,0 +1,19 @@
+{
+  "item.railway_plus.id_card": "居民身份证",
+  "item.railway_plus.reimbursement": "报销凭证",
+  "item.railway_plus.railway_ticket": "铁路电子客票",
+  "item.railway_plus.manual_checker": "人工检票机",
+  "item.railway_plus.tablet": "手持平板",
+  "item.railway_plus.admin_card": "管理员闸机卡",
+  "item.railway_plus.metro_ticket": "地铁单程票",
+  "item.railway_plus.metro_card": "地铁储值卡",
+  "block.railway_plus.ticket_vendor": "铁路售票机",
+  "block.railway_plus.gate_a": "闸机",
+  "block.railway_plus.gate_b": "国铁闸机",
+  "block.railway_plus.computer": "铁路电脑",
+  "block.railway_plus.guide_screen": "车站引导屏",
+  "block.railway_plus.tv": "世界内电视",
+  "block.railway_plus.vehicle_display": "车辆走字屏",
+  "block.railway_plus.dispatch_screen": "车载调度屏",
+  "itemGroup.railway_plus.railway": "机械动力:铁路增强"
+}

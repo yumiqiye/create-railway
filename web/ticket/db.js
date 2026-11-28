@@ -46,6 +46,9 @@ const DEFAULT_SETTINGS = {
   gateScreenEnabled: true,
   versionStage: 'BETA',
   metroEnabled: false,
+  metroBaseFare: 2,
+  metroFarePerStop: 1,
+  metroCardDeposit: 20,
   // 闸机显示：入站 / 出站欢迎语，{station} 会替换为检票端选择的站名
   entryWelcomeText: '欢迎光临{station}',
   exitWelcomeText: '欢迎您再次乘坐清江铁路12306',
@@ -64,6 +67,11 @@ const DEFAULT_SETTINGS = {
   liveDetection: true,
   showScanPreview: false,
   ticketQrRefreshSeconds: 30,
+  // Create / CRN / Simurail 兼容桥：默认关闭，只保存连接与同步状态
+  createCompatEnabled: false,
+  crnApiBase: 'http://127.0.0.1:8080/crn/api/v1',
+  simurailApiBase: '',
+  compatPullIntervalSeconds: 60,
 };
 
 const DEFAULT_SECURITY = {
@@ -111,6 +119,8 @@ function buildSeed() {
     tvms: [],
     blacklists: { highspeed: [], metro: [] },
     metroCards: [],
+    metroTickets: [],
+    compat: { create: {}, crn: {}, simurail: {} },
     security: { ...DEFAULT_SECURITY },
     logs: [],
     checkinEvents: [],
@@ -152,6 +162,11 @@ function normalize(db) {
   if (!Array.isArray(db.blacklists.highspeed)) db.blacklists.highspeed = [];
   if (!Array.isArray(db.blacklists.metro)) db.blacklists.metro = [];
   if (!Array.isArray(db.metroCards)) db.metroCards = [];
+  if (!Array.isArray(db.metroTickets)) db.metroTickets = [];
+  if (!db.compat || typeof db.compat !== 'object') db.compat = { create: {}, crn: {}, simurail: {} };
+  for (const key of ['create', 'crn', 'simurail']) {
+    if (!db.compat[key] || typeof db.compat[key] !== 'object') db.compat[key] = {};
+  }
   if (!Array.isArray(db.accounts) || !db.accounts.length) db.accounts = defaultAccounts();
   db.settings = { ...seed.settings, ...(db.settings || {}) };
   delete db.settings.gateStationName;

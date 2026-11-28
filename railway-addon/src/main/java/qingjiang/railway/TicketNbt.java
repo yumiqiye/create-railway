@@ -34,11 +34,7 @@ public final class TicketNbt {
     }
 
     public static boolean isIdCard(ItemStack stack) {
-        if (stack.isEmpty()) return false;
-        net.minecraft.resources.ResourceLocation id = CrhCompat.itemId(stack);
-        return stack.is(ModItems.ID_CARD.get())
-                || (id.getPath().equals("id_card")
-                && (id.getNamespace().equals(RailwayAddon.MOD_ID) || id.getNamespace().equals(CrhCompat.CRH_MODID)));
+        return !stack.isEmpty() && stack.is(ModItems.ID_CARD.get());
     }
 
     public static boolean isVoucher(ItemStack stack) {
@@ -242,6 +238,13 @@ public final class TicketNbt {
     public static void markCheckin(ItemStack stack) {
         CompoundTag tag = copy(stack);
         tag.putBoolean(CHECKED_IN, true);
+        set(stack, tag);
+    }
+
+    /** 出站后车票置为已使用，出站闸机不能再次通过。 */
+    public static void markUsed(ItemStack stack) {
+        CompoundTag tag = copy(stack);
+        tag.putBoolean(USED, true);
         set(stack, tag);
     }
 

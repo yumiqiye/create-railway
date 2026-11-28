@@ -36,6 +36,7 @@ public final class RailwayStore {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Map<String, Station> STATIONS = new LinkedHashMap<>();
     private static final Map<String, GateSetting> GATES = new LinkedHashMap<>();
+    private static final Map<String, VendorSetting> VENDORS = new LinkedHashMap<>();
     private static final Map<String, CardData> CARDS = new LinkedHashMap<>();
     private static Path file;
     private static boolean loaded;
@@ -61,14 +62,32 @@ public final class RailwayStore {
     public static final class GateSetting {
         public int type = GATE_ENTRY;
         public boolean disabled = false;
+        public String deviceId = "";
+        public String gateNo = "";
+        public String status = "normal";
+        public String maintenanceText = "";
+        public String mode = "auto";
+        public boolean cameraEnabled = true;
+        public boolean showScanPreview = false;
+        public String welcomeText = "";
+        public int configVersion = 0;
         public String lastMessage = "";
         public long messageUntil = 0L;
+    }
+
+    public static final class VendorSetting {
+        public String deviceId = "";
+        public String name = "";
+        public String kind = "ticket-machine";
+        public String status = "normal";
+        public int configVersion = 0;
     }
 
     public static final class CardData {
         public String name = "";
         public String idNo = "";
         public String ticketSnbt = "";
+        public String metroCardSnbt = "";
 
         public ItemStack toStack() {
             ItemStack stack = new ItemStack(ModItems.ID_CARD.get());
@@ -111,14 +130,37 @@ public final class RailwayStore {
             }
             this.ticketSnbt = ticket.toString();
         }
+
+        public ItemStack toMetroStack() {
+            ItemStack stack = new ItemStack(ModItems.METRO_CARD.get());
+            if (metroCardSnbt != null && !metroCardSnbt.isBlank()) {
+                try {
+                    CompoundTag tag = TagParser.parseTag(metroCardSnbt);
+                    MetroNbt.set(stack, tag);
+                } catch (Exception ignored) {
+                }
+            }
+            return stack;
+        }
+
+        public static CardData fromMetroStack(ItemStack stack) {
+            CardData data = new CardData();
+            data.metroCardSnbt = MetroNbt.copy(stack).toString();
+            return data;
+        }
+
+        public void updateMetroCardFrom(ItemStack metroStack) {
+            this.metroCardSnbt = MetroNbt.copy(metroStack).toString();
+        }
     }
 
     public static void load(MinecraftServer server) {
         if (loaded) return;
         loaded = true;
-        file = server.getWorldPath(LevelResource.ROOT).resolve("hexie_railway_addon.json");
+        file = server.getWorldPath(LevelResource.ROOT).resolve("railway_plus_addon.json");
         STATIONS.clear();
         GATES.clear();
+        VENDORS.clear();
         CARDS.clear();
         if (!Files.exists(file)) return;
         try {
@@ -134,7 +176,27 @@ public final class RailwayStore {
                 GateSetting setting = new GateSetting();
                 setting.type = object.has("type") ? object.get("type").getAsInt() : GATE_ENTRY;
                 setting.disabled = object.has("disabled") && object.get("disabled").getAsBoolean();
+                setting.deviceId = RailwayWeb.str(object, "deviceId", "");
+                setting.gateNo = RailwayWeb.str(object, "gateNo", "");
+                setting.status = RailwayWeb.str(object, "status", "normal");
+                setting.maintenanceText = RailwayWeb.str(object, "maintenanceText", "");
+                setting.mode = RailwayWeb.str(object, "mode", "auto");
+                setting.cameraEnabled = RailwayWeb.b(object, "cameraEnabled", true);
+                setting.showScanPreview = RailwayWeb.b(object, "showScanPreview", false);
+                setting.welcomeText = RailwayWeb.str(object, "welcomeText", "");
+                setting.configVersion = RailwayWeb.i(object, "configVersion", 0);
                 GATES.put(key, setting);
+            }
+            JsonObject vendors = root.has("vendors") ? root.getAsJsonObject("vendors") : new JsonObject();
+            for (String key : vendors.keySet()) {
+                JsonObject object = vendors.getAsJsonObject(key);
+                VendorSetting vendor = new VendorSetting();
+                vendor.deviceId = RailwayWeb.str(object, "deviceId", "");
+                vendor.name = RailwayWeb.str(object, "name", "");
+                vendor.kind = RailwayWeb.str(object, "kind", "ticket-machine");
+                vendor.status = RailwayWeb.str(object, "status", "normal");
+                vendor.configVersion = RailwayWeb.i(object, "configVersion", 0);
+                VENDORS.put(key, vendor);
             }
             JsonObject cards = root.has("cards") ? root.getAsJsonObject("cards") : new JsonObject();
             for (String key : cards.keySet()) {
@@ -143,6 +205,7 @@ public final class RailwayStore {
                 card.name = RailwayWeb.str(object, "name", "");
                 card.idNo = RailwayWeb.str(object, "idNo", "");
                 card.ticketSnbt = RailwayWeb.str(object, "ticket", "");
+                card.metroCardSnbt = RailwayWeb.str(object, "metroCard", "");
                 CARDS.put(key, card);
             }
         } catch (Exception ignored) {
@@ -151,7 +214,7 @@ public final class RailwayStore {
 
     public static synchronized void save(MinecraftServer server) {        if (file == null) {
             if (server == null) return;
-            file = server.getWorldPath(LevelResource.ROOT).resolve("hexie_railway_addon.json");
+            file = server.getWorldPath(LevelResource.ROOT).resolve("railway_plus_addon.json");
         }
         JsonObject root = new JsonObject();
         JsonArray stations = new JsonArray();
@@ -163,9 +226,30 @@ public final class RailwayStore {
             JsonObject object = new JsonObject();
             object.addProperty("type", entry.getValue().type);
             object.addProperty("disabled", entry.getValue().disabled);
+            object.addProperty("deviceId", entry.getValue().deviceId);
+            object.addProperty("gateNo", entry.getValue().gateNo);
+            object.addProperty("status", entry.getValue().status);
+            object.addProperty("maintenanceText", entry.getValue().maintenanceText);
+            object.addProperty("mode", entry.getValue().mode);
+            object.addProperty("cameraEnabled", entry.getValue().cameraEnabled);
+            object.addProperty("showScanPreview", entry.getValue().showScanPreview);
+            object.addProperty("welcomeText", entry.getValue().welcomeText);
+            object.addProperty("configVersion", entry.getValue().configVersion);
             gates.add(entry.getKey(), object);
         }
         root.add("gates", gates);
+
+        JsonObject vendors = new JsonObject();
+        for (Map.Entry<String, VendorSetting> entry : VENDORS.entrySet()) {
+            JsonObject object = new JsonObject();
+            object.addProperty("deviceId", entry.getValue().deviceId);
+            object.addProperty("name", entry.getValue().name);
+            object.addProperty("kind", entry.getValue().kind);
+            object.addProperty("status", entry.getValue().status);
+            object.addProperty("configVersion", entry.getValue().configVersion);
+            vendors.add(entry.getKey(), object);
+        }
+        root.add("vendors", vendors);
 
         JsonObject cards = new JsonObject();
         for (Map.Entry<String, CardData> entry : CARDS.entrySet()) {
@@ -173,6 +257,7 @@ public final class RailwayStore {
             object.addProperty("name", entry.getValue().name);
             object.addProperty("idNo", entry.getValue().idNo);
             object.addProperty("ticket", entry.getValue().ticketSnbt);
+            object.addProperty("metroCard", entry.getValue().metroCardSnbt);
             cards.add(entry.getKey(), object);
         }
         root.add("cards", cards);
@@ -242,6 +327,191 @@ public final class RailwayStore {
         return STATIONS;
     }
 
+    /**
+     * 从网页后台拉取车站台账，补齐后台新建车站，并回填本地车站的后端 ID、维度和中心点。
+     * 本地已划定的范围、闸机和售票机清单不会被远端覆盖；远端无本地方块记录的车站先按中心点登记为占位台账。
+     */
+    public static synchronized int[] pullRemote(JsonObject envelope) {
+        JsonObject data = RailwayWeb.data(envelope);
+        JsonElement list = data.get("stations");
+        if (list == null || !list.isJsonArray()) return new int[]{0, 0};
+
+        int added = 0;
+        int updated = 0;
+        for (JsonElement element : list.getAsJsonArray()) {
+            if (!element.isJsonObject()) continue;
+            JsonObject remote = element.getAsJsonObject();
+            String name = RailwayWeb.str(remote, "name", "").trim();
+            String backendId = RailwayWeb.str(remote, "id", "").trim();
+            if (name.isBlank()) continue;
+
+            int x = RailwayWeb.i(remote, "x", 0);
+            int y = RailwayWeb.i(remote, "y", 0);
+            int z = RailwayWeb.i(remote, "z", 0);
+            String dimension = RailwayWeb.str(remote, "dimension", "minecraft:overworld");
+
+            Station local = null;
+            for (Station station : STATIONS.values()) {
+                if (!backendId.isBlank() && backendId.equals(station.backendId)) {
+                    local = station;
+                    break;
+                }
+            }
+            if (local == null) local = STATIONS.get(name);
+
+            if (local == null) {
+                local = new Station();
+                local.name = name;
+                local.backendId = backendId;
+                local.dimension = dimension;
+                local.cx = x;
+                local.cy = y;
+                local.cz = z;
+                local.x1 = local.x2 = x;
+                local.y1 = local.y2 = y;
+                local.z1 = local.z2 = z;
+                STATIONS.put(name, local);
+                added++;
+                continue;
+            }
+
+            if (!backendId.isBlank()) local.backendId = backendId;
+            if (!dimension.isBlank()) local.dimension = dimension;
+            if (x != 0 || y != 0 || z != 0) {
+                local.cx = x;
+                local.cy = y;
+                local.cz = z;
+                if (local.x1 == 0 && local.y1 == 0 && local.z1 == 0
+                        && local.x2 == 0 && local.y2 == 0 && local.z2 == 0) {
+                    local.x1 = local.x2 = x;
+                    local.y1 = local.y2 = y;
+                    local.z1 = local.z2 = z;
+                }
+            }
+            updated++;
+        }
+        return new int[]{added, updated};
+    }
+
+    /** 异步拉取后台车站台账；失败时保留本地数据不变。 */
+    public static void refreshRemoteAsync() {
+        RailwayWeb.getAsync("/railway/stations", RailwayStore::applyRemoteEnvelope, ignored -> {});
+    }
+
+    private static void applyRemoteEnvelope(JsonObject envelope) {
+        pullRemote(envelope);
+    }
+
+    /** 异步拉取后台检票机与购票机台账；失败时保留本地设备配置不变。 */
+    public static void refreshDeviceConfigAsync() {
+        RailwayWeb.getAsync("/railway/admin/devices", RailwayStore::applyRemoteDevices, ignored -> {});
+        RailwayWeb.getAsync("/railway/admin/tvms", RailwayStore::applyRemoteTvms, ignored -> {});
+    }
+
+    private static void applyRemoteDevices(JsonObject envelope) {
+        pullRemoteDevices(envelope);
+    }
+
+    private static void applyRemoteTvms(JsonObject envelope) {
+        pullRemoteTvms(envelope);
+    }
+
+    public static synchronized int[] pullRemoteDevices(JsonObject envelope) {
+        JsonArray list = resultArray(envelope);
+        int applied = 0;
+        for (JsonElement element : list) {
+            if (!element.isJsonObject()) continue;
+            JsonObject remote = element.getAsJsonObject();
+            String stationId = RailwayWeb.str(remote, "stationId", "");
+            String stationName = RailwayWeb.str(remote, "stationName", "");
+            String gateNo = RailwayWeb.str(remote, "gateNo", "").trim();
+            Station station = matchStation(stationId, stationName);
+            if (station == null || gateNo.isBlank()) continue;
+
+            String gateType = RailwayWeb.str(remote, "gateType", "checkin");
+            String status = RailwayWeb.str(remote, "status", "normal");
+            JsonObject config = remote.has("remoteConfig") && remote.get("remoteConfig").isJsonObject()
+                    ? remote.getAsJsonObject("remoteConfig") : new JsonObject();
+
+            for (BlockPos pos : station.gates) {
+                String key = station.dimension + "@" + pos.asLong();
+                GateSetting setting = GATES.computeIfAbsent(key, ignored -> new GateSetting());
+                if (!setting.gateNo.isBlank() && !setting.gateNo.equals(gateNo)) continue;
+
+                setting.deviceId = RailwayWeb.str(remote, "id", "");
+                setting.gateNo = gateNo;
+                setting.type = switch (gateType) {
+                    case "entry" -> GATE_ENTRY;
+                    case "exit" -> GATE_EXIT;
+                    default -> GATE_CHECK;
+                };
+                setting.status = status;
+                setting.disabled = !"normal".equals(status);
+                setting.maintenanceText = RailwayWeb.str(remote, "maintenanceText", "");
+                setting.mode = RailwayWeb.str(config, "mode", "auto");
+                setting.cameraEnabled = RailwayWeb.b(config, "cameraEnabled", true);
+                setting.showScanPreview = RailwayWeb.b(config, "showScanPreview", false);
+                setting.welcomeText = RailwayWeb.str(config, "welcomeText", "");
+                setting.configVersion = RailwayWeb.i(remote, "configVersion", 0);
+                applied++;
+                break;
+            }
+        }
+        return new int[]{applied};
+    }
+
+    public static synchronized int[] pullRemoteTvms(JsonObject envelope) {
+        JsonArray list = resultArray(envelope);
+        int applied = 0;
+        for (JsonElement element : list) {
+            if (!element.isJsonObject()) continue;
+            JsonObject remote = element.getAsJsonObject();
+            Station station = matchStation(RailwayWeb.str(remote, "stationId", ""),
+                    RailwayWeb.str(remote, "stationName", ""));
+            if (station == null) continue;
+
+            JsonObject posObject = remote.has("pos") && remote.get("pos").isJsonObject()
+                    ? remote.getAsJsonObject("pos") : new JsonObject();
+            int rx = RailwayWeb.i(posObject, "x", Integer.MIN_VALUE);
+            int ry = RailwayWeb.i(posObject, "y", Integer.MIN_VALUE);
+            int rz = RailwayWeb.i(posObject, "z", Integer.MIN_VALUE);
+
+            for (BlockPos pos : station.vendors) {
+                boolean posMatched = rx == Integer.MIN_VALUE || (rx == pos.getX() && ry == pos.getY() && rz == pos.getZ());
+                if (!posMatched) continue;
+                String key = station.dimension + "@" + pos.asLong();
+                VendorSetting vendor = VENDORS.computeIfAbsent(key, ignored -> new VendorSetting());
+                vendor.deviceId = RailwayWeb.str(remote, "id", "");
+                vendor.name = RailwayWeb.str(remote, "name", "");
+                vendor.kind = RailwayWeb.str(remote, "kind", "ticket-machine");
+                vendor.status = RailwayWeb.str(remote, "status", "normal");
+                vendor.configVersion = RailwayWeb.i(remote, "configVersion", 0);
+                applied++;
+                break;
+            }
+        }
+        return new int[]{applied};
+    }
+
+    private static Station matchStation(String backendId, String name) {
+        if (!backendId.isBlank()) {
+            for (Station station : STATIONS.values()) {
+                if (backendId.equals(station.backendId)) return station;
+            }
+        }
+        return name.isBlank() ? null : STATIONS.get(name);
+    }
+
+    private static JsonArray resultArray(JsonObject envelope) {
+        JsonElement result = envelope.get("result");
+        if (result != null && result.isJsonArray()) return result.getAsJsonArray();
+        if (result != null && result.isJsonObject()) {
+            JsonElement stations = result.getAsJsonObject().get("stations");
+            if (stations != null && stations.isJsonArray()) return stations.getAsJsonArray();
+        }
+        return new JsonArray();
+    }
+
     /** 删除本地车站及其闸机/售票机设置；网页端由命令另行通知删除。 */
     public static Station removeStation(String name) {
         Station station = STATIONS.remove(name);
@@ -251,7 +521,9 @@ public final class RailwayStore {
             CARDS.remove(station.dimension + "@" + pos.asLong());
         }
         for (BlockPos pos : station.vendors) {
-            CARDS.remove(station.dimension + "@" + pos.asLong());
+            String key = station.dimension + "@" + pos.asLong();
+            VENDORS.remove(key);
+            CARDS.remove(key);
         }
         return station;
     }
@@ -307,6 +579,14 @@ public final class RailwayStore {
         return GATES.get(gateKey(level, pos));
     }
 
+    public static VendorSetting vendor(Level level, BlockPos pos) {
+        return VENDORS.computeIfAbsent(gateKey(level, pos), key -> new VendorSetting());
+    }
+
+    public static VendorSetting vendorIfPresent(Level level, BlockPos pos) {
+        return VENDORS.get(gateKey(level, pos));
+    }
+
     public static void setGateMessage(Level level, BlockPos pos, GateSetting setting, String message, long millis) {
         setting.lastMessage = message == null ? "" : message;
         setting.messageUntil = System.currentTimeMillis() + millis;
@@ -336,6 +616,28 @@ public final class RailwayStore {
         return null;
     }
 
+    public static CardData nearbyMetroCard(Level level, BlockPos origin, int radius) {
+        String prefix = level.dimension().location() + "@";
+        for (Map.Entry<String, CardData> entry : CARDS.entrySet()) {
+            if (entry.getValue().metroCardSnbt.isBlank()) continue;
+            if (!entry.getKey().startsWith(prefix)) continue;
+            BlockPos pos = BlockPos.of(Long.parseLong(entry.getKey().substring(prefix.length())));
+            if (pos.distManhattan(origin) <= radius) return entry.getValue();
+        }
+        return null;
+    }
+
+    public static BlockPos nearbyMetroCardPos(Level level, BlockPos origin, int radius) {
+        String prefix = level.dimension().location() + "@";
+        for (Map.Entry<String, CardData> entry : CARDS.entrySet()) {
+            if (entry.getValue().metroCardSnbt.isBlank()) continue;
+            if (!entry.getKey().startsWith(prefix)) continue;
+            BlockPos pos = BlockPos.of(Long.parseLong(entry.getKey().substring(prefix.length())));
+            if (pos.distManhattan(origin) <= radius) return pos;
+        }
+        return null;
+    }
+
     /** 找到并移除附近售票机内与证件号/乘客名匹配的身份证，供出票后连同票据一起取出。 */
     public static CardData removeNearbyVendorCard(Level level, BlockPos origin, int radius, String idNo, String name) {
         String prefix = level.dimension().location() + "@";
@@ -358,6 +660,7 @@ public final class RailwayStore {
         file = null;
         STATIONS.clear();
         GATES.clear();
+        VENDORS.clear();
         CARDS.clear();
     }
 }

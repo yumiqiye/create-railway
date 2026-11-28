@@ -21,14 +21,14 @@ public final class RailwayWeb {
             .connectTimeout(Duration.ofMillis(1500))
             .version(HttpClient.Version.HTTP_1_1)
             .executor(Executors.newFixedThreadPool(2, runnable -> {
-                Thread thread = new Thread(runnable, "hexie-railway-web");
+                Thread thread = new Thread(runnable, "railway-plus-web");
                 thread.setDaemon(true);
                 return thread;
             }))
             .build();
 
     private static final ExecutorService ASYNC = Executors.newCachedThreadPool(runnable -> {
-        Thread thread = new Thread(runnable, "hexie-railway-async");
+        Thread thread = new Thread(runnable, "railway-plus-async");
         thread.setDaemon(true);
         return thread;
     });

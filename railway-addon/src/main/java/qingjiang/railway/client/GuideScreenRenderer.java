@@ -8,21 +8,18 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
+import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.SectionPos;
-import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
-import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 import qingjiang.railway.ModBlocks;
 import qingjiang.railway.RailwayAddon;
@@ -36,19 +33,21 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 车站引导屏的世界渲染。
+ * 车站引导屏的方块实体渲染。
  * 相邻、同朝向、同车站的屏自动拼成一条横屏；一台 Chromium 浏览器渲染整页，
- * 每个方块只取整页对应的横向切片，随墙面宽度自动缩放适配。
+ * 每个方块只取整页对应的横向切片。坐标直接落在方块局部模型内，避免世界事件里二次相机平移导致悬空。
  */
 @EventBusSubscriber(modid = RailwayAddon.MOD_ID, value = Dist.CLIENT)
-public final class GuideScreenRenderer {
+public final class GuideScreenRenderer implements BlockEntityRenderer<GuideScreenBlockEntity> {
     private static final int MAX_CHAIN = 16;
     private static final int TILE_PIXELS = 480;
     private static final int MAX_TEXTURE_SIZE = 4096;
     private static final double VIEW_DISTANCE = 96.0D;
     private static final long BROWSER_IDLE_MS = 15_000L;
 
-    private static ClientLevel activeLevel;
+    public static final BlockEntityRendererProvider<GuideScreenBlockEntity> PROVIDER =
+            context -> new GuideScreenRenderer();
+
     private static final Map<BlockPos, ScreenBrowser> BROWSERS = new HashMap<>();
 
     private GuideScreenRenderer() {}
@@ -56,90 +55,73 @@ public final class GuideScreenRenderer {
     @SubscribeEvent
     public static void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         closeAll();
-        activeLevel = null;
     }
 
-    @SubscribeEvent
-    public static void onRenderLevel(RenderLevelStageEvent event) {
-        // 在实体和半透明方块之前绘制：屏体会正常写入深度，后面的实体/水面能遮挡它，
-        // 不再像 AFTER_TRANSLUCENT_BLOCKS 那样盖在所有东西上造成“置顶穿模”。
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_CUTOUT_BLOCKS) return;
+    @Override
+    public void render(GuideScreenBlockEntity screen, float partialTick, PoseStack poseStack,
+                       net.minecraft.client.renderer.MultiBufferSource buffers, int packedLight, int packedOverlay) {
+        Level level = screen.getLevel();
+        if (level == null) return;
+
+        BlockPos pos = screen.getBlockPos();
         Minecraft minecraft = Minecraft.getInstance();
-        ClientLevel level = minecraft.level;
-        if (level == null) {
-            closeAll();
-            return;
-        }
-        if (level != activeLevel) {
-            closeAll();
-            activeLevel = level;
-        }
+        Vec3 camera = minecraft.getCameraEntity() != null ? minecraft.getCameraEntity().position() : Vec3.ZERO;
+        if (camera.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5)
+                > VIEW_DISTANCE * VIEW_DISTANCE) return;
+
+        BlockState state = level.getBlockState(pos);
+        if (!state.is(ModBlocks.GUIDE_SCREEN.get())) return;
 
         long now = System.currentTimeMillis();
-        Vec3 camera = event.getCamera().getPosition();
-        PoseStack poseStack = event.getPoseStack();
+        Direction facing = state.getValue(GuideScreenBlock.FACING);
+        Group group = groupFor(level, screen, facing);
+        ScreenBrowser browser = browserFor(group, now);
+        if (browser == null) return;
 
-        poseStack.pushPose();
-        poseStack.translate(-camera.x, -camera.y, -camera.z);
+        int pixelsPerBlock = Math.max(1, Math.min(TILE_PIXELS,
+                MAX_TEXTURE_SIZE / Math.max(group.cols, group.rows)));
+        int width = pixelsPerBlock * group.cols;
+        int height = pixelsPerBlock * group.rows;
+        ensureBrowser(browser, group, width, height, now);
+        if (browser.browser == null) return;
+
+        int texture = McefBridge.textureId(browser.browser);
+        if (texture == 0) return;
+
+        float u0 = group.col / (float) group.cols;
+        float u1 = (group.col + 1) / (float) group.cols;
+        float v0 = (group.rows - 1 - group.row) / (float) group.rows;
+        float v1 = (group.rows - group.row) / (float) group.rows;
 
         RenderSystem.enableDepthTest();
         RenderSystem.depthMask(true);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-        // 只画朝外的一面；从屏幕背后看时被柜体挡住，避免穿到方块另一侧。
-        RenderSystem.enableCull();
+        RenderSystem.disableCull();
         RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-
-        int minChunkX = SectionPos.blockToSectionCoord(camera.x - VIEW_DISTANCE);
-        int maxChunkX = SectionPos.blockToSectionCoord(camera.x + VIEW_DISTANCE);
-        int minChunkZ = SectionPos.blockToSectionCoord(camera.z - VIEW_DISTANCE);
-        int maxChunkZ = SectionPos.blockToSectionCoord(camera.z + VIEW_DISTANCE);
-
-        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
-            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
-                LevelChunk chunk = level.getChunkSource().getChunk(cx, cz, ChunkStatus.FULL, false);
-                if (chunk == null) continue;
-                for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
-                    if (!(blockEntity instanceof GuideScreenBlockEntity screen)) continue;
-                    BlockPos pos = screen.getBlockPos();
-                    if (camera.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5)
-                            > VIEW_DISTANCE * VIEW_DISTANCE) continue;
-                    BlockState state = level.getBlockState(pos);
-                    if (!state.is(ModBlocks.GUIDE_SCREEN.get())) continue;
-                    renderScreen(level, screen, state, poseStack, now);
-                }
-            }
-        }
-
-        RenderSystem.enableCull();
-        RenderSystem.disableBlend();
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        poseStack.popPose();
+        RenderSystem.setShaderTexture(0, texture);
+        drawTile(poseStack, facing, screenScale(screen), u0, u1, v0, v1);
 
         evictIdle(now);
     }
 
-    private static void renderScreen(ClientLevel level, GuideScreenBlockEntity screen, BlockState state,
-                                     PoseStack poseStack, long now) {
-        Direction facing = state.getValue(GuideScreenBlock.FACING);
-        Group group = groupFor(level, screen, state, facing);
+    private static ScreenBrowser browserFor(Group group, long now) {
         ScreenBrowser browser = BROWSERS.get(group.origin);
-
+        if (browser != null && !browser.stationId.equals(group.stationId)) {
+            browser.close();
+            BROWSERS.remove(group.origin);
+            browser = null;
+        }
         if (browser == null) {
             browser = new ScreenBrowser(group.stationId, -1, -1, now + 500L);
             BROWSERS.put(group.origin, browser);
-        } else if (!browser.stationId.equals(group.stationId)) {
-            browser.close();
-            browser = new ScreenBrowser(group.stationId, -1, -1, now + 500L);
-            BROWSERS.put(group.origin, browser);
         }
-
         browser.lastSeen = now;
-        int pixelsPerBlock = Math.max(1, Math.min(TILE_PIXELS,
-                MAX_TEXTURE_SIZE / Math.max(group.cols, group.rows)));
-        int width = pixelsPerBlock * group.cols;
-        int height = pixelsPerBlock * group.rows;
+        return browser;
+    }
+
+    private static void ensureBrowser(ScreenBrowser browser, Group group, int width, int height, long now) {
         if (browser.browser == null) {
             if (now < browser.nextAttempt) return;
             String url = RailwayConfig.baseUrl() + "/guide.html?embed=1&screen=1"
@@ -153,24 +135,15 @@ public final class GuideScreenRenderer {
             browser.width = width;
             browser.height = height;
             browser.nextAttempt = now + 1_000L;
-            if (browser.browser == null) return;
-        } else if (browser.cols != group.cols || browser.rows != group.rows) {
+            return;
+        }
+        if (browser.cols != group.cols || browser.rows != group.rows || browser.width != width || browser.height != height) {
             browser.cols = group.cols;
             browser.rows = group.rows;
             browser.width = width;
             browser.height = height;
             McefBridge.resize(browser.browser, width, height);
         }
-
-        int texture = McefBridge.textureId(browser.browser);
-        if (texture == 0) return;
-
-        float u0 = group.col / (float) group.cols;
-        float u1 = (group.col + 1) / (float) group.cols;
-        float v0 = (group.rows - 1 - group.row) / (float) group.rows;
-        float v1 = (group.rows - group.row) / (float) group.rows;
-        RenderSystem.setShaderTexture(0, texture);
-        drawTile(poseStack, screen.getBlockPos(), facing, screenScale(screen), u0, u1, v0, v1);
     }
 
     /** 读取方块实体上保存的屏幕缩放系数；缺失时按整屏 1.0 渲染。 */
@@ -180,7 +153,7 @@ public final class GuideScreenRenderer {
     }
 
     /** 找到这块拼屏的左下角、当前方块所在的行列和整屏列数/行数；最多 16×16。 */
-    private static Group groupFor(ClientLevel level, GuideScreenBlockEntity screen, BlockState state, Direction facing) {
+    private static Group groupFor(Level level, GuideScreenBlockEntity screen, Direction facing) {
         Direction right = rightward(facing);
         BlockPos pos = screen.getBlockPos();
         BlockPos left = pos;
@@ -215,7 +188,7 @@ public final class GuideScreenRenderer {
         return new Group(bottom.immutable(), col, row, cols, rows, screen.stationId());
     }
 
-    private static boolean sameScreen(ClientLevel level, BlockPos pos, Direction facing, String stationId) {
+    private static boolean sameScreen(Level level, BlockPos pos, Direction facing, String stationId) {
         BlockState state = level.getBlockState(pos);
         if (!state.is(ModBlocks.GUIDE_SCREEN.get())) return false;
         if (state.getValue(GuideScreenBlock.FACING) != facing) return false;
@@ -234,19 +207,17 @@ public final class GuideScreenRenderer {
         };
     }
 
-    private static void drawTile(PoseStack poseStack, BlockPos pos, Direction facing, float scale,
+    private static void drawTile(PoseStack poseStack, Direction facing, float scale,
                                  float u0, float u1, float v0, float v1) {
         Matrix4f matrix = poseStack.last().pose();
         BufferBuilder buffer = Tesselator.getInstance()
                 .begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         float eps = 0.003F;
-        float cx = pos.getX() + 0.5F;
-        float cy = pos.getY() + 0.5F;
-        float cz = pos.getZ() + 0.5F;
+        float cx = 0.5F;
+        float cy = 0.5F;
+        float cz = 0.5F;
         float half = 0.5F * Math.max(0.5F, Math.min(1.5F, scale));
 
-        // 双面绘制：避免不同朝向时背面剔除把屏幕正面裁掉。
-        RenderSystem.disableCull();
         switch (facing) {
             case NORTH -> {
                 vertex(buffer, matrix, cx + half, cy - half, cz - 0.5F - eps, u0, v1);
@@ -276,7 +247,6 @@ public final class GuideScreenRenderer {
             }
         }
         BufferUploader.drawWithShader(buffer.buildOrThrow());
-        RenderSystem.enableCull();
     }
 
     private static void vertex(BufferBuilder buffer, Matrix4f matrix, float x, float y, float z, float u, float v) {

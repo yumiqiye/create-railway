@@ -34,6 +34,8 @@ public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVen
     private String stationName = "";
     private String passengerName = "";
     private String idNo = "";
+    private String metroCardNo = "";
+    private String metroBalance = "";
     private int px;
     private int py;
     private int pw;
@@ -76,6 +78,8 @@ public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVen
         stationName = parts.length > 1 ? parts[1] : "";
         passengerName = parts.length > 2 ? parts[2] : "";
         idNo = parts.length > 3 ? parts[3] : "";
+        metroCardNo = parts.length > 4 ? parts[4] : "";
+        metroBalance = parts.length > 5 ? parts[5] : "";
         openBrowser();
         RailwaySettings.refreshAsync();
     }
@@ -85,6 +89,8 @@ public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVen
                 + URLEncoder.encode(stationName, StandardCharsets.UTF_8)
                 + "&name=" + URLEncoder.encode(passengerName, StandardCharsets.UTF_8)
                 + "&idNo=" + URLEncoder.encode(idNo, StandardCharsets.UTF_8)
+                + "&metroCardNo=" + URLEncoder.encode(metroCardNo, StandardCharsets.UTF_8)
+                + "&metroBalance=" + URLEncoder.encode(metroBalance, StandardCharsets.UTF_8)
                 + "&embed=1";
     }
 
@@ -189,7 +195,8 @@ public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVen
                 : payload.startsWith("voucher=") ? "voucher"
                 : payload.startsWith("itinerary=") ? "itinerary"
                 : payload.startsWith("refund=") ? "refund"
-                : payload.startsWith("change=") ? "change" : "";
+                : payload.startsWith("change=") ? "change"
+                : payload.startsWith("metroRecharge=") ? "metroRecharge" : "";
         if (action.isBlank()) return;
         String raw = payload.substring(action.length() + 1);
         String decoded;
@@ -199,20 +206,30 @@ public class RailwayVendorScreen extends Screen implements MenuAccess<RailwayVen
             decoded = raw;
         }
         decoded = decoded.replace("|", "\u0001");
-        String orderNo = decoded.split("\u0001")[0].replaceAll("[^A-Za-z0-9-]", "");
-        if (orderNo.isBlank()) return;
-        String key = action + ":" + decoded + ":" + nonce;
-        if (key.equals(lastAction)) return;
-        lastAction = key;
-        String command = "railway " + action + " " + orderNo;
-        if ("change".equals(action)) {
-            String[] parts = decoded.split("\u0001");
-            if (parts.length < 4) return;
-            String trainNo = parts[1].replaceAll("[^A-Za-z0-9-]", "");
-            String date = parts[2].replaceAll("[^0-9-]", "");
-            String seatType = parts[3].replaceAll("[^\\u4e00-\\u9fa5A-Za-z0-9]", "");
-            if (trainNo.isBlank() || date.isBlank() || seatType.isBlank()) return;
-            command = command + " " + trainNo + " " + date + " " + seatType;
+        String command;
+        if ("metroRecharge".equals(action)) {
+            String amount = decoded.replaceAll("[^0-9.]", "");
+            if (amount.isBlank()) return;
+            String key = action + ":" + decoded + ":" + nonce;
+            if (key.equals(lastAction)) return;
+            lastAction = key;
+            command = "metro card recharge " + amount;
+        } else {
+            String orderNo = decoded.split("\u0001")[0].replaceAll("[^A-Za-z0-9-]", "");
+            if (orderNo.isBlank()) return;
+            String key = action + ":" + decoded + ":" + nonce;
+            if (key.equals(lastAction)) return;
+            lastAction = key;
+            command = "railway " + action + " " + orderNo;
+            if ("change".equals(action)) {
+                String[] parts = decoded.split("\u0001");
+                if (parts.length < 4) return;
+                String trainNo = parts[1].replaceAll("[^A-Za-z0-9-]", "");
+                String date = parts[2].replaceAll("[^0-9-]", "");
+                String seatType = parts[3].replaceAll("[^\\u4e00-\\u9fa5A-Za-z0-9]", "");
+                if (trainNo.isBlank() || date.isBlank() || seatType.isBlank()) return;
+                command = command + " " + trainNo + " " + date + " " + seatType;
+            }
         }
         var player = Minecraft.getInstance().player;
         if (player != null) player.connection.sendCommand(command);

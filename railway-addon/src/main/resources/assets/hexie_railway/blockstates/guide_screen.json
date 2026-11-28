@@ -1,8 +1,0 @@
-{
-  "variants": {
-    "facing=north": { "model": "hexie_railway:block/guide_screen" },
-    "facing=east": { "model": "hexie_railway:block/guide_screen", "y": 90 },
-    "facing=south": { "model": "hexie_railway:block/guide_screen", "y": 180 },
-    "facing=west": { "model": "hexie_railway:block/guide_screen", "y": 270 }
-  }
-}

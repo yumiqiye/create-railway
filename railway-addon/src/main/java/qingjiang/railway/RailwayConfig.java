@@ -14,14 +14,26 @@ public final class RailwayConfig {
     public static final ModConfigSpec.ConfigValue<String> CURRENCY_NAME;
     public static final ModConfigSpec.IntValue CURRENCY_PER_UNIT;
     public static final ModConfigSpec.IntValue GATE_OPEN_TICKS;
+    public static final ModConfigSpec.BooleanValue EMBED_WEB;
+    public static final ModConfigSpec.ConfigValue<String> NODE_COMMAND;
+    public static final ModConfigSpec.IntValue TICKET_PORT;
+    public static final ModConfigSpec.IntValue ADMIN_PORT;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
-        builder.comment("清江铁路网页端（独立进程，默认 3000 端口）").push("web");
-        WEB_BASE = builder.comment("网页后端根地址，不要以 / 结尾")
+        builder.comment("清江铁路网页端（默认由模组内嵌 Node 进程提供）").push("web");
+        WEB_BASE = builder.comment("网页后端根地址，不要以 / 结尾；内嵌启动成功后通常指向 127.0.0.1:ticketPort")
                 .define("baseUrl", "http://127.0.0.1:3000");
-        ADMIN_WEB_BASE = builder.comment("人工终端内嵌的 8001 后台根地址，不要以 / 结尾")
-                .define("adminBaseUrl", "http://localhost:8001");
+        ADMIN_WEB_BASE = builder.comment("人工终端内嵌的后台根地址，不要以 / 结尾；内嵌启动成功后通常指向 127.0.0.1:adminPort")
+                .define("adminBaseUrl", "http://127.0.0.1:8001");
+        EMBED_WEB = builder.comment("是否启动模组 Jar 内捆绑的 Node 票务后端；关闭后使用 baseUrl/adminBaseUrl 指向外部服务")
+                .define("embedNode", true);
+        NODE_COMMAND = builder.comment("本机 Node 启动命令；PATH 中可直接使用 node，也可填写 node.exe 绝对路径")
+                .define("nodeCommand", "node");
+        TICKET_PORT = builder.comment("内嵌票务后端端口")
+                .defineInRange("ticketPort", 3000, 1024, 65535);
+        ADMIN_PORT = builder.comment("内嵌后台静态服务端口")
+                .defineInRange("adminPort", 8001, 1024, 65535);
         ADMIN_TOKEN = builder.comment("与网页端 [railway] adminToken 一致")
                 .define("adminToken", "qingjiang-railway-mod");
         FALLBACK_CHECKIN_MINUTES = builder.comment("网页端无法提供开检时间时，按发车前多少分钟开检")
@@ -56,6 +68,23 @@ public final class RailwayConfig {
 
     public static String adminToken() {
         return ADMIN_TOKEN.get();
+    }
+
+    public static boolean embedWeb() {
+        return EMBED_WEB.get();
+    }
+
+    public static String nodeCommand() {
+        String value = NODE_COMMAND.get();
+        return value == null || value.isBlank() ? "node" : value.trim();
+    }
+
+    public static int ticketPort() {
+        return TICKET_PORT.get();
+    }
+
+    public static int adminPort() {
+        return ADMIN_PORT.get();
     }
 
     public static int fallbackCheckinMinutes() {

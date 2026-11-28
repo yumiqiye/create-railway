@@ -82,7 +82,7 @@
         </n-form-item>
         <n-form-item label="计价单位">
           <n-select v-model:value="form.railwayCurrency" :options="currencyOptions" style="width: 220px" />
-          <span class="hint">仅用于网页与命令提示；游戏内实际扣款物品在 config/hexie-railway.toml 的 currencyItem 配置</span>
+          <span class="hint">仅用于网页与命令提示；游戏内实际扣款物品在 config/railway_plus-common.toml 的 currencyItem 配置</span>
         </n-form-item>
         <n-form-item label="每格票价系数">
           <n-input-number v-model:value="form.farePerBlock" :min="0.001" :max="10" :step="0.01" :precision="3" style="width: 180px" />
@@ -104,7 +104,7 @@
           </n-input-number>
         </n-form-item>
         <n-form-item label="模组管理令牌">
-          <n-input v-model:value="form.railwayAdminToken" maxlength="80" placeholder="与 config/hexie-railway.toml 的 adminToken 一致" />
+          <n-input v-model:value="form.railwayAdminToken" maxlength="80" placeholder="与 config/railway_plus-common.toml 的 adminToken 一致" />
         </n-form-item>
         <n-form-item>
           <n-button type="primary" :loading="saving" @click="save">保存铁路品牌设置</n-button>

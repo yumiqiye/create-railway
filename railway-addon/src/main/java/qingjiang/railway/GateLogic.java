@@ -20,12 +20,19 @@ public final class GateLogic {
     public static Result validate(ItemStack stack, int gateType, boolean disabled, String stationName) {
         if (disabled) return new Result(false, "此闸机已停用，请联系工作人员");
         if (stack.isEmpty()) return new Result(false, "请刷身份证或车票");
-        if (CrhCompat.isVoucher(stack)) return new Result(false, "请使用车票或身份证通过闸机");
+        if (CrhCompat.isVoucher(stack)) return new Result(false, "报销凭证不能通过闸机，请使用车票或身份证");
+        if (TicketNbt.isItinerary(stack)) return new Result(false, "行程信息单不能检票，请使用车票或身份证");
 
         if (!TicketNbt.hasTicket(stack)) {
             return new Result(false, "未读取到有效车票，请先在售票机购票");
         }
+        if (TicketNbt.used(stack)) {
+            return new Result(false, "车票已使用或已失效，请联系工作人员");
+        }
         if (gateType == RailwayStore.GATE_CHECK) {
+            if (TicketNbt.checkedIn(stack)) {
+                return new Result(false, "该票已检票，不能重复检票");
+            }
             long departure = TicketNbt.departureTime(stack);
             long start = departure > 0
                     ? departure - RailwaySettings.checkinMinutes() * 60_000L
@@ -47,12 +54,7 @@ public final class GateLogic {
                 return new Result(false, "请联系工作人员（无进站记录）");
             }
         }
-        if (gateType == RailwayStore.GATE_ENTRY) {
-            if (TicketNbt.entryUsed(stack)) {
-                return new Result(false, "该票已进站，不能重复进站；如需重进请工作人员在后台取消检票");
-            }
-            if (TicketNbt.used(stack)) return new Result(false, "车票已使用或已失效，请联系工作人员");
-        }
+        // 进站闸机允许同一张票重复刷入；仅排除已出站 / 已失效车票。
         return new Result(true, "");
     }
 
@@ -66,6 +68,7 @@ public final class GateLogic {
             TicketNbt.markCheckin(stack);
             return "检票成功 · " + TicketNbt.trainName(stack) + " · " + TicketNbt.fromStation(stack) + " → " + TicketNbt.toStation(stack);
         }
+        TicketNbt.markUsed(stack);
         return "出站成功 · 欢迎下次乘坐" + RailwaySettings.systemName();
     }
 

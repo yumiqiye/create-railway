@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "railway_plus:block/dispatch_screen" }
+  }
+}

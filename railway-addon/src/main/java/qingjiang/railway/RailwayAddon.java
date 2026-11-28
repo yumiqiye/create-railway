@@ -8,17 +8,22 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import qingjiang.railway.network.RailwayNetwork;
+import qingjiang.railway.dispatch.DispatchService;
 
 @Mod(RailwayAddon.MOD_ID)
 public class RailwayAddon {
-    public static final String MOD_ID = "hexie_railway";
-    public static final Logger LOGGER = LoggerFactory.getLogger("HexieRailway");
+    public static final String MOD_ID = "railway_plus";
+    public static final Logger LOGGER = LoggerFactory.getLogger("RailwayPlus");
 
     public RailwayAddon(IEventBus modBus, ModContainer container) {
+        try {
+            DispatchService.VERSION = container.getModInfo().getVersion().toString();
+        } catch (Throwable ignored) {
+        }
         container.registerConfig(net.neoforged.fml.config.ModConfig.Type.COMMON, RailwayConfig.SPEC);
+        ModBlocks.BLOCKS.register(modBus);
         ModItems.ITEMS.register(modBus);
         ModItems.TABS.register(modBus);
-        ModBlocks.BLOCKS.register(modBus);
         ModBlockEntities.BLOCK_ENTITIES.register(modBus);
         ModMenus.MENUS.register(modBus);
         modBus.addListener(RailwayNetwork::register);

@@ -3,15 +3,32 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
 }
 
-// 每次执行 build 自动把补丁号 +1：本次构建使用递增后的版本，产物与 gradle.properties 一致。
+// 每次执行 build 自动调整版本号：
+// - 稳定版 1.0.6 -> 1.0.7；
+// - Beta 版 1.0.6-BETA.1 -> .2 -> .3 -> .4 -> .5；
+// - BETA.5 再构建时回到稳定版 1.0.7。
 // 需要临时关闭时加 -PnoVersionBump。
 def autoVersionBump = gradle.startParameter.taskNames.any { it == 'build' || it.endsWith(':build') }
         && !project.hasProperty('noVersionBump')
 def effectiveVersion = mod_version
 if (autoVersionBump) {
-    def matcher = mod_version =~ /^(\d+)\.(\d+)\.(\d+)(.*)$/
+    def matcher = mod_version =~ /^(\d+)\.(\d+)\.(\d+)(?:-BETA\.(\d+))?$/
     if (matcher.matches()) {
-        def nextVersion = "${matcher.group(1)}.${matcher.group(2)}.${matcher.group(3).toInteger() + 1}"
+        def major = matcher.group(1)
+        def minor = matcher.group(2)
+        def patch = matcher.group(3).toInteger()
+        def betaText = matcher.group(4)
+        String nextVersion
+        if (betaText != null) {
+            def beta = betaText.toInteger()
+            if (beta >= 5) {
+                nextVersion = "${major}.${minor}.${patch + 1}"
+            } else {
+                nextVersion = "${major}.${minor}.${patch}-BETA.${beta + 1}"
+            }
+        } else {
+            nextVersion = "${major}.${minor}.${patch + 1}"
+        }
         def propsFile = file('gradle.properties')
         def propsText = propsFile.getText('UTF-8')
         propsFile.setText(propsText.replaceAll(/(?m)^mod_version=.*$/, "mod_version=${nextVersion}"), 'UTF-8')
@@ -22,7 +39,7 @@ if (autoVersionBump) {
 
 version = effectiveVersion
 group = mod_group_id
-base.archivesName = "HexieRailwayAddon-${minecraft_version}"
+base.archivesName = "CreateRailwayPlus-${minecraft_version}"
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -58,10 +75,37 @@ neoForge {
     }
 }
 
+// 把 Node 票务后端、游戏内静态页和后台构建产物打成 Jar 内的 embedded.zip。
+// node_modules 不进 Jar：首次启动在配置目录自动安装精简后的生产依赖，关闭游戏时随模组停止。
+tasks.register('bundleEmbeddedWeb', Zip) {
+    archiveFileName = 'embedded.zip'
+    destinationDirectory = layout.buildDirectory.dir('embedded-web')
+    includeEmptyDirs = false
+    from('../web/shared') { into 'shared' }
+    from('../web/ticket') {
+        into 'ticket'
+        include 'package.json'
+        include 'db.js'
+        include 'server.js'
+        include 'public/tvm.html'
+        include 'public/guide.html'
+        include 'public/guide.js'
+        include 'public/guide.css'
+        include 'public/screen.html'
+        include 'public/screen.js'
+        include 'public/screen.css'
+        include 'public/favicon.svg'
+    }
+    from('../web/admin/dist') { into 'admin/dist' }
+    from('../web/embedded/admin-server.js') { into '.' }
+}
+
 tasks.named('processResources', ProcessResources).configure {
+    dependsOn 'bundleEmbeddedWeb'
     var properties = [mod_version: effectiveVersion, mod_name: mod_name,
                       minecraft_version: minecraft_version, neo_version: neo_version]
     inputs.properties properties
+    from(bundleEmbeddedWeb.getArchiveFile()) { into 'embedded' }
     filesMatching('META-INF/neoforge.mods.toml') { expand properties }
 }
 

@@ -17,7 +17,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
+import qingjiang.railway.block.GuideScreenBlockEntity;
+import qingjiang.railway.block.RailwayTvBlockEntity;
+import qingjiang.railway.block.VehicleDisplayBlockEntity;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -36,7 +42,7 @@ public final class RailwayCommands {
 
     private static final SuggestionProvider<CommandSourceStack> STATION_SUGGESTIONS = (context, builder) -> {
         for (String name : webStationNames()) {
-            if (!name.contains(" ")) builder.suggest(name);
+            builder.suggest(name.contains(" ") ? "\"" + name + "\"" : name);
         }
         return builder.buildFuture();
     };
@@ -99,34 +105,84 @@ public final class RailwayCommands {
                                                                 StringArgumentType.getString(context, "date"),
                                                                 StringArgumentType.getString(context, "seatType"))))))))
                 .then(Commands.literal("status").executes(RailwayCommands::status))
+                .then(Commands.literal("dispatch")
+                        .then(Commands.literal("history").executes(RailwayCommands::dispatchHistory))
+                        .then(Commands.argument("message", StringArgumentType.greedyString())
+                                .executes(RailwayCommands::sendDispatch)))
                 .then(Commands.literal("admin")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("station")
                                 .then(Commands.literal("delete")
-                                        .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("name", StringArgumentType.string())
                                                 .suggests(STATION_SUGGESTIONS)
-                                                .executes(RailwayCommands::deleteStation)))
-                                .then(Commands.argument("name", StringArgumentType.word())
+                                                .executes(RailwayCommands::deleteStation))
+                                .then(Commands.argument("name", StringArgumentType.string())
                                         .suggests(STATION_SUGGESTIONS)
                                         .then(Commands.literal("delete").executes(RailwayCommands::deleteStation))
                                         .then(Commands.literal("POS1")
                                                 .executes(context -> setPos(context, 1, null))
                                                 .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                                        .executes(context -> setPos(context, 1, BlockPosArgument.getBlockPos(context, "pos")))))
+                                                        .executes(context -> setPos(context, 1, BlockPosArgument.getBlockPos(context, "pos"))))
                                         .then(Commands.literal("POS2")
                                                 .executes(context -> setPos(context, 2, null))
                                                 .then(Commands.argument("pos", BlockPosArgument.blockPos())
-                                                        .executes(context -> setPos(context, 2, BlockPosArgument.getBlockPos(context, "pos"))))))
+                                                        .executes(context -> setPos(context, 2, BlockPosArgument.getBlockPos(context, "pos"))))))))
                         .then(Commands.literal("stations").executes(RailwayCommands::listStations))
+                        .then(Commands.literal("screen")
+                                .then(Commands.literal("scale")
+                                        .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                                .then(Commands.argument("scale", StringArgumentType.word())
+                                                        .executes(RailwayCommands::setGuideScreenScale)))))
+                        .then(Commands.literal("display")
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .then(Commands.argument("line", StringArgumentType.string())
+                                                .then(Commands.argument("destination", StringArgumentType.string())
+                                                        .then(Commands.argument("next", StringArgumentType.string())
+                                                                .executes(RailwayCommands::setVehicleDisplay))))))
+                        .then(Commands.literal("tv")
+                                .then(Commands.argument("pos", BlockPosArgument.blockPos())
+                                        .then(Commands.argument("url", StringArgumentType.greedyString())
+                                                .executes(RailwayCommands::setTvUrl))))
+                        .then(Commands.literal("pull").executes(RailwayCommands::pullRemoteStations))
+                        .then(Commands.literal("devices").executes(RailwayCommands::listDeviceBindings))
+                        .then(Commands.literal("gate")
+                                .then(Commands.literal("bind")
+                                        .then(Commands.argument("gateNo", StringArgumentType.string())
+                                                .executes(RailwayCommands::bindGate))))
                         .then(Commands.literal("sync").executes(RailwayCommands::syncAll))
                         .then(Commands.literal("buy")
                                 .then(Commands.argument("player", EntityArgument.player())
                                         .then(Commands.argument("trainNo", StringArgumentType.word())
-                                                .then(Commands.argument("from", StringArgumentType.word())
+                                                .then(Commands.argument("from", StringArgumentType.string())
                                                         .suggests(STATION_SUGGESTIONS)
-                                                        .then(Commands.argument("to", StringArgumentType.word())
+                                                        .then(Commands.argument("to", StringArgumentType.string())
                                                                 .suggests(STATION_SUGGESTIONS)
                                                                 .executes(RailwayCommands::adminBuy)))))))));
+
+        dispatcher.register(Commands.literal("metro")
+                .then(Commands.literal("arrivals")
+                        .then(Commands.argument("station", StringArgumentType.string())
+                                .suggests(STATION_SUGGESTIONS)
+                                .executes(RailwayCommands::metroArrivals)))
+                .then(Commands.literal("estimate")
+                        .then(Commands.argument("from", StringArgumentType.string())
+                                .suggests(STATION_SUGGESTIONS)
+                                .then(Commands.argument("to", StringArgumentType.string())
+                                        .suggests(STATION_SUGGESTIONS)
+                                        .executes(RailwayCommands::metroEstimate))))
+                .then(Commands.literal("ticket")
+                        .then(Commands.literal("buy")
+                                .then(Commands.argument("from", StringArgumentType.string())
+                                        .suggests(STATION_SUGGESTIONS)
+                                        .then(Commands.argument("to", StringArgumentType.string())
+                                                .suggests(STATION_SUGGESTIONS)
+                                                .executes(RailwayCommands::metroBuyTicket)))))
+                .then(Commands.literal("card")
+                        .then(Commands.literal("new").executes(RailwayCommands::metroNewCard))
+                        .then(Commands.literal("balance").executes(RailwayCommands::metroCardBalance))
+                        .then(Commands.literal("recharge")
+                                .then(Commands.argument("amount", StringArgumentType.word())
+                                        .executes(RailwayCommands::metroRecharge)))));
     }
 
     private static int payAll(CommandContext<CommandSourceStack> context) {
@@ -463,6 +519,206 @@ public final class RailwayCommands {
         }
     }
 
+    private static String enc(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8);
+    }
+
+    private record MetroTarget(ItemStack held, RailwayStore.CardData stored, BlockPos storedPos) {}
+
+    private static ItemStack heldMetroCard(ServerPlayer player) {
+        for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
+            ItemStack stack = player.getInventory().getItem(i);
+            if (MetroNbt.isMetroCard(stack)) return stack;
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private static MetroTarget metroTarget(ServerPlayer player) {
+        ItemStack held = heldMetroCard(player);
+        if (!held.isEmpty()) return new MetroTarget(held, null, null);
+        BlockPos pos = RailwayStore.nearbyMetroCardPos(player.level(), player.blockPosition(), 6);
+        if (pos != null) return new MetroTarget(ItemStack.EMPTY, RailwayStore.cardAt(player.level(), pos), pos);
+        return null;
+    }
+
+    private static String metroCardNo(MetroTarget target) {
+        if (!target.held().isEmpty()) return MetroNbt.cardNo(target.held());
+        ItemStack stored = target.stored() == null ? ItemStack.EMPTY : target.stored().toMetroStack();
+        return MetroNbt.isMetroCard(stored) ? MetroNbt.cardNo(stored) : "";
+    }
+
+    private static void writeMetroTarget(ServerPlayer player, MetroTarget target, JsonObject card) {
+        if (!target.held().isEmpty()) {
+            MetroNbt.writeCard(target.held(), card);
+            return;
+        }
+        if (target.stored() != null) {
+            ItemStack temp = new ItemStack(ModItems.METRO_CARD.get());
+            MetroNbt.writeCard(temp, card);
+            target.stored().updateMetroCardFrom(temp);
+            RailwayStore.putCard(player.level(), target.storedPos(), target.stored());
+            RailwayStore.save(player.getServer());
+        }
+    }
+
+    private static int metroArrivals(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        String station = unquote(StringArgumentType.getString(context, "station"));
+        try {
+            JsonObject envelope = RailwayWeb.blockingGet("/railway/metro/arrivals?station=" + enc(station), 3000);
+            JsonObject data = RailwayWeb.data(envelope);
+            JsonArray arrivals = data.has("arrivals") && data.get("arrivals").isJsonArray()
+                    ? data.getAsJsonArray("arrivals") : new JsonArray();
+            reply(player, "「" + station + "」地铁到站预报：", ChatFormatting.AQUA);
+            if (arrivals.isEmpty()) reply(player, "  暂无后续班次", ChatFormatting.GRAY);
+            for (JsonElement element : arrivals) {
+                if (!element.isJsonObject()) continue;
+                JsonObject row = element.getAsJsonObject();
+                String line = RailwayWeb.str(row, "line", "");
+                String trainNo = RailwayWeb.str(row, "trainNo", "");
+                String destination = RailwayWeb.str(row, "destination", "");
+                String nextStation = RailwayWeb.str(row, "nextStation", "");
+                String departTime = RailwayWeb.str(row, "departTime", "--:--");
+                int minutes = RailwayWeb.i(row, "minutes", 0);
+                String label = line.isBlank() ? trainNo : line + " " + trainNo;
+                reply(player, "  " + departTime + " · " + label + " → " + destination
+                        + (nextStation.isBlank() ? "" : "（下一站 " + nextStation + "）")
+                        + " · " + minutes + " 分钟后", ChatFormatting.GRAY);
+            }
+            return 1;
+        } catch (Exception e) {
+            reply(player, "查询到站预报失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int metroEstimate(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        String from = unquote(StringArgumentType.getString(context, "from"));
+        String to = unquote(StringArgumentType.getString(context, "to"));
+        try {
+            JsonObject envelope = RailwayWeb.blockingGet(
+                    "/railway/metro/estimate?from=" + enc(from) + "&to=" + enc(to), 3000);
+            JsonObject data = RailwayWeb.data(envelope);
+            reply(player, "地铁票价：" + from + " → " + to + "，" + RailwayWeb.i(data, "fare", 0) + " 元",
+                    ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "票价试算失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int metroBuyTicket(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        String from = unquote(StringArgumentType.getString(context, "from"));
+        String to = unquote(StringArgumentType.getString(context, "to"));
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("playerName", player.getGameProfile().getName());
+            body.addProperty("from", from);
+            body.addProperty("to", to);
+            JsonObject envelope = RailwayWeb.blockingPost("/railway/metro/tickets", body, 4000);
+            JsonObject ticket = RailwayWeb.data(envelope);
+            ItemStack stack = new ItemStack(ModItems.METRO_TICKET.get());
+            MetroNbt.writeTicket(stack, ticket);
+            give(player, stack);
+            reply(player, "已购买地铁单程票：" + from + " → " + to + "，票价 "
+                    + RailwayWeb.i(ticket, "fare", 0) + " 元", ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "购买地铁票失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int metroNewCard(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("playerName", player.getGameProfile().getName());
+            JsonObject envelope = RailwayWeb.blockingPost("/railway/metro/cards", body, 4000);
+            JsonObject card = RailwayWeb.data(envelope);
+            ItemStack stack = new ItemStack(ModItems.METRO_CARD.get());
+            MetroNbt.writeCard(stack, card);
+            give(player, stack);
+            reply(player, "已开通地铁储值卡 " + RailwayWeb.str(card, "cardNo", ""), ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "开卡失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int metroCardBalance(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        MetroTarget target = metroTarget(player);
+        if (target == null) {
+            reply(player, "背包或附近售票机内没有地铁储值卡", ChatFormatting.YELLOW);
+            return 0;
+        }
+        String cardNo = metroCardNo(target);
+        try {
+            JsonObject envelope = RailwayWeb.blockingGet("/railway/metro/cards?cardNo=" + enc(cardNo), 3000);
+            JsonObject data = RailwayWeb.data(envelope);
+            JsonArray cards = data.has("cards") && data.get("cards").isJsonArray()
+                    ? data.getAsJsonArray("cards") : new JsonArray();
+            if (cards.isEmpty()) {
+                reply(player, "储值卡不存在或已注销", ChatFormatting.RED);
+                return 0;
+            }
+            JsonObject card = cards.get(0).getAsJsonObject();
+            writeMetroTarget(player, target, card);
+            reply(player, "储值卡 " + cardNo + " 余额 " + RailwayWeb.str(card, "balance", "0") + " 元",
+                    ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "查询余额失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int metroRecharge(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        MetroTarget target = metroTarget(player);
+        if (target == null) {
+            reply(player, "背包或附近售票机内没有地铁储值卡", ChatFormatting.YELLOW);
+            return 0;
+        }
+        double amount;
+        try {
+            amount = Double.parseDouble(StringArgumentType.getString(context, "amount"));
+        } catch (NumberFormatException e) {
+            reply(player, "充值金额无效", ChatFormatting.RED);
+            return 0;
+        }
+        if (amount <= 0) {
+            reply(player, "充值金额必须大于 0", ChatFormatting.RED);
+            return 0;
+        }
+        try {
+            JsonObject body = new JsonObject();
+            body.addProperty("cardNo", metroCardNo(target));
+            body.addProperty("action", "recharge");
+            body.addProperty("amount", amount);
+            JsonObject envelope = RailwayWeb.blockingPost("/railway/metro/cards", body, 4000);
+            JsonObject card = RailwayWeb.data(envelope);
+            writeMetroTarget(player, target, card);
+            reply(player, "充值成功，当前余额 " + RailwayWeb.str(card, "balance", "0") + " 元",
+                    ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "充值失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
     private static int deleteStation(CommandContext<CommandSourceStack> context) {
         ServerPlayer player = context.getSource().getPlayer();
         if (player == null) return 0;
@@ -525,6 +781,87 @@ public final class RailwayCommands {
         return 1;
     }
 
+    private static int setGuideScreenScale(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        BlockPos pos = BlockPosArgument.getBlockPos(context, "pos");
+        float scale;
+        try {
+            scale = Float.parseFloat(StringArgumentType.getString(context, "scale").trim());
+        } catch (NumberFormatException e) {
+            reply(player, "缩放系数需为 0.5~1.5 的数字", ChatFormatting.RED);
+            return 0;
+        }
+        if (!(scale >= 0.5F && scale <= 1.5F)) {
+            reply(player, "缩放系数需在 0.5~1.5 之间", ChatFormatting.RED);
+            return 0;
+        }
+        ServerLevel level = (ServerLevel) player.level();
+        if (!(level.getBlockEntity(pos) instanceof GuideScreenBlockEntity screen)) {
+            reply(player, "该位置不是引导屏方块", ChatFormatting.RED);
+            return 0;
+        }
+        screen.setScale(scale);
+        level.sendBlockUpdated(pos, level.getBlockState(pos), level.getBlockState(pos), 3);
+        reply(player, "引导屏 " + pos.toShortString() + " 缩放已设为 " + scale, ChatFormatting.GREEN);
+        return 1;
+    }
+
+    private static int sendDispatch(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        String message = StringArgumentType.getString(context, "message");
+        RailwayDispatch.broadcast(player, message);
+        return 1;
+    }
+
+    private static int dispatchHistory(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        List<RailwayDispatch.Message> history = RailwayDispatch.history();
+        if (history.isEmpty()) {
+            reply(player, "暂无调度消息", ChatFormatting.GRAY);
+            return 1;
+        }
+        reply(player, "最近调度消息：", ChatFormatting.AQUA);
+        for (RailwayDispatch.Message message : history) {
+            reply(player, "[" + message.time() + "] " + message.sender() + "：" + message.text(), ChatFormatting.GRAY);
+        }
+        return 1;
+    }
+
+    private static int setTvUrl(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        BlockPos pos = BlockPosArgument.getBlockPos(context, "pos");
+        String url = StringArgumentType.getString(context, "url").trim();
+        ServerLevel level = (ServerLevel) player.level();
+        if (!(level.getBlockEntity(pos) instanceof RailwayTvBlockEntity tv)) {
+            reply(player, "该位置不是世界内电视", ChatFormatting.RED);
+            return 0;
+        }
+        int count = UrlConfigService.applyToGroup(level, pos, url.trim(), false);
+        reply(player, "电视网页已设置：" + url + "（整组 " + count + " 台）", ChatFormatting.GREEN);
+        return 1;
+    }
+
+    private static int setVehicleDisplay(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        BlockPos pos = BlockPosArgument.getBlockPos(context, "pos");
+        String line = StringArgumentType.getString(context, "line");
+        String destination = StringArgumentType.getString(context, "destination");
+        String next = StringArgumentType.getString(context, "next");
+        ServerLevel level = (ServerLevel) player.level();
+        if (!(level.getBlockEntity(pos) instanceof VehicleDisplayBlockEntity display)) {
+            reply(player, "该位置不是车辆走字屏", ChatFormatting.RED);
+            return 0;
+        }
+        display.setText(line, destination, next);
+        reply(player, "走字屏已更新：" + line + " → " + destination + "（下一站：" + next + "）", ChatFormatting.GREEN);
+        return 1;
+    }
+
     private static int listStations(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
         if (RailwayStore.stations().isEmpty()) {
@@ -539,14 +876,113 @@ public final class RailwayCommands {
         return 1;
     }
 
+    private static int pullRemoteStations(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        try {
+            JsonObject envelope = RailwayWeb.blockingGet("/railway/stations", 2500);
+            int[] counts = RailwayStore.pullRemote(envelope);
+            RailwayStore.save(player.getServer());
+            stationCacheAt = 0L;
+            reply(player, "已从网页端拉取车站台账：新增 " + counts[0] + " 个，更新 " + counts[1] + " 个", ChatFormatting.GREEN);
+            return 1;
+        } catch (Exception e) {
+            reply(player, "拉取车站台账失败：" + e.getMessage(), ChatFormatting.RED);
+            return 0;
+        }
+    }
+
+    private static int bindGate(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        String gateNo = StringArgumentType.getString(context, "gateNo").trim();
+        if (gateNo.isBlank()) {
+            reply(player, "闸机编号不能为空", ChatFormatting.RED);
+            return 0;
+        }
+
+        var hit = player.pick(6.0D, 0.0F, false);
+        BlockPos pos;
+        if (hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) {
+            pos = blockHit.getBlockPos();
+        } else {
+            reply(player, "请看向要绑定的闸机方块", ChatFormatting.RED);
+            return 0;
+        }
+
+        BlockState state = player.level().getBlockState(pos);
+        if (!CrhCompat.isGate(state)) {
+            reply(player, "看向的方块不是闸机", ChatFormatting.RED);
+            return 0;
+        }
+
+        RailwayStore.GateSetting setting = RailwayStore.gate(player.level(), pos, state);
+        setting.gateNo = gateNo;
+        RailwayStore.save(player.getServer());
+        reply(player, "闸机 " + pos.toShortString() + " 已绑定编号 " + gateNo, ChatFormatting.GREEN);
+        return 1;
+    }
+
+    private static int listDeviceBindings(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        if (player == null) return 0;
+        try {
+            RailwayStore.pullRemoteDevices(RailwayWeb.blockingGet("/railway/admin/devices", 2500));
+            RailwayStore.pullRemoteTvms(RailwayWeb.blockingGet("/railway/admin/tvms", 2500));
+        } catch (Exception ignored) {
+        }
+
+        int gates = 0;
+        int vendors = 0;
+        int disabled = 0;
+        for (RailwayStore.Station station : RailwayStore.stations().values()) {
+            for (BlockPos pos : station.gates) {
+                gates++;
+                RailwayStore.GateSetting setting = RailwayStore.gateIfPresent(player.level(), pos);
+                if (setting != null && !"normal".equals(setting.status)) disabled++;
+                String label = setting == null || setting.gateNo.isBlank() ? "未编号" : setting.gateNo;
+                String status = setting == null ? "本地默认" : setting.status;
+                reply(player, "闸机｜" + station.name + "｜" + label + "｜" + pos.toShortString() + "｜" + status,
+                        "disabled".equals(status) ? ChatFormatting.RED : ChatFormatting.AQUA);
+            }
+            for (BlockPos pos : station.vendors) {
+                vendors++;
+                RailwayStore.VendorSetting vendor = RailwayStore.vendorIfPresent(player.level(), pos);
+                String name = vendor == null || vendor.name.isBlank() ? "未登记购票机" : vendor.name;
+                String status = vendor == null ? "本地默认" : vendor.status;
+                if (!"normal".equals(status)) disabled++;
+                reply(player, "购票机｜" + station.name + "｜" + name + "｜" + pos.toShortString() + "｜" + status,
+                        "disabled".equals(status) ? ChatFormatting.RED : ChatFormatting.AQUA);
+            }
+        }
+        reply(player, "设备台账：闸机 " + gates + " 台，购票机 " + vendors + " 台，停用/维修 " + disabled + " 台",
+                ChatFormatting.GREEN);
+        return 1;
+    }
+
     private static int syncAll(CommandContext<CommandSourceStack> context) {
+        ServerPlayer player = context.getSource().getPlayer();
+        int pulled = 0;
+        try {
+            JsonObject envelope = RailwayWeb.blockingGet("/railway/stations", 2500);
+            int[] counts = RailwayStore.pullRemote(envelope);
+            pulled = counts[0] + counts[1];
+            RailwayStore.save(context.getSource().getServer());
+        } catch (Exception ignored) {
+            // 反向拉取失败不阻断本地车站向网页端同步。
+        }
+
         int ok = 0;
         for (RailwayStore.Station station : RailwayStore.stations().values()) {
             if (syncStation(station)) ok++;
         }
         stationCacheAt = 0L;
-        int count = ok;
-        context.getSource().sendSuccess(() -> Component.literal("已同步 " + count + " 个车站到网页端"), false);
+        String message = "已拉取后台 " + pulled + " 个车站台账，并同步 " + ok + " 个本地车站到网页端";
+        if (player != null) {
+            reply(player, message, ChatFormatting.GREEN);
+        } else {
+            context.getSource().sendSuccess(() -> Component.literal(message), false);
+        }
         return ok;
     }
 

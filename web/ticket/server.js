@@ -1172,6 +1172,211 @@ function blacklistHit(db, mode, name, idNo) {
   });
 }
 
+/* ---------------- 地铁模式 ---------------- */
+
+function metroSettings(db) {
+  const s = db.settings || {};
+  const base = Math.max(1, Number(s.metroBaseFare || 2));
+  const perStop = Math.max(0, Number(s.metroFarePerStop || 1));
+  const deposit = Math.max(0, Number(s.metroCardDeposit || 20));
+  return { enabled: s.metroEnabled === true, base, perStop, deposit, minFare: base, maxFare: Number(s.maxFare || 64) };
+}
+
+function metroTrainStops(train) {
+  if (!Array.isArray(train.stops)) return [];
+  return train.stops.map((stop, index) => ({
+    index,
+    stationId: String(stop.stationId || stop.id || ''),
+    stationName: String(stop.stationName || stop.name || ''),
+    departTime: String(stop.departTime || train.departTime || ''),
+    arriveTime: String(stop.arriveTime || train.arriveTime || ''),
+  }));
+}
+
+function metroFare(db, fromStation, toStation) {
+  const cfg = metroSettings(db);
+  let stopDiff = 1;
+  for (const train of db.trains || []) {
+    const stops = metroTrainStops(train);
+    const from = stops.find((s) => s.stationId === fromStation.id || s.stationName === fromStation.name);
+    const to = stops.find((s) => s.stationId === toStation.id || s.stationName === toStation.name);
+    if (from && to && to.index > from.index) {
+      stopDiff = to.index - from.index;
+      break;
+    }
+  }
+  const fare = cfg.base + Math.max(0, stopDiff - 1) * cfg.perStop;
+  return Math.max(cfg.minFare, Math.min(cfg.maxFare, Math.round(Number(fare.toFixed(2)))));
+}
+
+function metroArrivals(db, station, limit) {
+  const now = new Date();
+  const date = todayStr();
+  const rows = [];
+  for (const train of db.trains || []) {
+    const stops = metroTrainStops(train);
+    const stop = stops.find((s) => s.stationId === station.id || s.stationName === station.name);
+    if (!stop) continue;
+    const dep = new Date(`${date}T${stop.departTime || '00:00'}:00`);
+    if (Number.isNaN(dep.getTime()) || dep <= now) continue;
+    const next = stops[Math.min(stops.length - 1, stop.index + 1)];
+    rows.push({
+      trainNo: train.trainNo,
+      line: train.type || train.line || '',
+      stationName: station.name,
+      departTime: stop.departTime,
+      arriveTime: stop.arriveTime,
+      nextStation: next ? next.stationName : '',
+      destination: train.toStationName || (stops[stops.length - 1] ? stops[stops.length - 1].stationName : ''),
+      platform: train.platform || '',
+      delayMinutes: Number(train.delayMinutes || 0),
+      minutes: Math.max(0, Math.round((dep.getTime() - now.getTime()) / 60000)),
+    });
+  }
+  rows.sort((a, b) => String(a.departTime).localeCompare(String(b.departTime)));
+  return rows.slice(0, Math.max(1, Number(limit || 2)));
+}
+
+/* ---------------- Create / CRN / Simurail 兼容桥 ---------------- */
+
+function compatStore(db) {
+  if (!db.compat || typeof db.compat !== 'object') db.compat = {};
+  for (const key of ['create', 'crn', 'simurail']) {
+    if (!db.compat[key] || typeof db.compat[key] !== 'object') db.compat[key] = {};
+  }
+  return db.compat;
+}
+
+function compatSettings(db) {
+  const s = db.settings || {};
+  return {
+    enabled: s.createCompatEnabled === true,
+    crnApiBase: String(s.crnApiBase || '').trim(),
+    simurailApiBase: String(s.simurailApiBase || '').trim(),
+    pullIntervalSeconds: Number(s.compatPullIntervalSeconds || 60),
+  };
+}
+
+function compatStatus(db) {
+  const compat = compatStore(db);
+  return {
+    settings: compatSettings(db),
+    create: compat.create,
+    crn: compat.crn,
+    simurail: compat.simurail,
+  };
+}
+
+async function compatFetchJson(url, timeoutMs = 3000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function payloadList(payload, keys) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+  for (const key of keys) {
+    if (Array.isArray(payload[key])) return payload[key];
+  }
+  return [];
+}
+
+function normalizeCrnTrain(row) {
+  const item = row && typeof row === 'object' ? row : {};
+  return {
+    externalId: String(item.train_id || item.id || item.trainNo || ''),
+    trainNo: String(item.train_name || item.current_title || item.trainNo || ''),
+    line: String(item.line || ''),
+    category: String(item.category || ''),
+    lifecycle: String(item.lifecycle || ''),
+    state: String(item.live_state || item.service_state || ''),
+    destination: String(item.destination || ''),
+    currentStation: String(item.current_station || ''),
+    nextStation: String(item.next_station || ''),
+    position: item.position || null,
+    delays: item.delays || null,
+  };
+}
+
+function normalizeExternalStation(row) {
+  const item = row && typeof row === 'object' ? row : {};
+  const station = item.station || item;
+  return {
+    externalId: String(station.tag_id || station.id || station.name || ''),
+    name: String(station.name || station.tag_name || ''),
+    platform: String((station.info && station.info.platform) || station.platform || ''),
+  };
+}
+
+function compatPushPayload(db) {
+  return {
+    pushedAt: new Date().toISOString(),
+    stations: (db.stations || []).map((s) => ({
+      id: s.id, name: s.name, mcName: s.mcName || '',
+      platformCount: Number(s.platformCount || 1), gateCount: Number(s.gateCount || 1),
+      center: [s.x, s.y, s.z], gates: s.gates || [], vendors: s.vendors || [],
+    })),
+    trains: (db.trains || []).map((t) => ({
+      id: t.id, trainNo: t.trainNo, type: t.type, platform: t.platform,
+      gates: t.gates || [], fromStationId: t.fromStationId, toStationId: t.toStationId,
+      stops: t.stops || [],
+    })),
+  };
+}
+
+async function compatPullCrn(db) {
+  const settings = compatSettings(db);
+  if (!settings.crnApiBase) throw new Error('尚未配置 CRN 接口地址');
+  const base = settings.crnApiBase.replace(/\/+$/, '');
+  const [trainPayload, stationPayload] = await Promise.all([
+    compatFetchJson(`${base}/trains`).catch(() => []),
+    compatFetchJson(`${base}/stations`).catch(() => []),
+  ]);
+  const trains = payloadList(trainPayload, ['trains', 'items']).map(normalizeCrnTrain);
+  const stations = payloadList(stationPayload, ['stations', 'items']).map(normalizeExternalStation);
+  const record = {
+    lastSyncAt: new Date().toISOString(),
+    lastError: '',
+    trainCount: trains.length,
+    stationCount: stations.length,
+    trains: trains.slice(0, 200),
+    stations: stations.slice(0, 200),
+  };
+  compatStore(db).crn = record;
+  saveDB();
+  return record;
+}
+
+async function compatPullSimurail(db) {
+  const settings = compatSettings(db);
+  if (!settings.simurailApiBase) throw new Error('尚未配置 Simurail 接口地址');
+  const base = settings.simurailApiBase.replace(/\/+$/, '');
+  const [trainPayload, stationPayload] = await Promise.all([
+    compatFetchJson(`${base}/trains`).catch(() => []),
+    compatFetchJson(`${base}/stations`).catch(() => []),
+  ]);
+  const trains = payloadList(trainPayload, ['trains', 'items']).map(normalizeCrnTrain);
+  const stations = payloadList(stationPayload, ['stations', 'items']).map(normalizeExternalStation);
+  const record = {
+    lastSyncAt: new Date().toISOString(),
+    lastError: '',
+    trainCount: trains.length,
+    stationCount: stations.length,
+    trains: trains.slice(0, 200),
+    stations: stations.slice(0, 200),
+  };
+  compatStore(db).simurail = record;
+  saveDB();
+  return record;
+}
+
 function railwayFareKey(a, b) {
   return [String(a), String(b)].sort().join('|');
 }
@@ -1988,6 +2193,94 @@ async function route(req, res, pathname, query) {
       return ok(res, railwayBrand(db));
     }
 
+    /* 兼容桥状态：模组侧读取 Create/CRN/Simurail 映射与开关 */
+    if (second === 'compat' && method === 'GET') {
+      if (!railwayInternalOk(db, req)) return fail(res, 401, '缺少内部访问密钥');
+      return ok(res, compatStatus(db));
+    }
+
+    /* 地铁：到达预报、票价试算、储值卡与单程票 */
+    if (second === 'metro') {
+      if (!metroSettings(db).enabled) return fail(res, 400, '地铁模式未开启');
+
+      if (third === 'arrivals' && method === 'GET') {
+        const station = railwayStationByName(db, query.station || '') || findStation(db, String(query.stationId || ''));
+        if (!station) return fail(res, 404, '车站不存在');
+        return ok(res, { station: { id: station.id, name: station.name }, arrivals: metroArrivals(db, station, 2) });
+      }
+
+      if (third === 'estimate' && method === 'GET') {
+        const from = railwayStationByName(db, query.from || '') || findStation(db, String(query.fromStationId || ''));
+        const to = railwayStationByName(db, query.to || '') || findStation(db, String(query.toStationId || ''));
+        if (!from || !to) return fail(res, 400, '起终站无效');
+        return ok(res, { fromStation: from.name, toStation: to.name, fare: metroFare(db, from, to) });
+      }
+
+      if (third === 'cards') {
+        if (method === 'GET') {
+        const cards = db.metroCards || [];
+        const cardNo = String(query.cardNo || '').trim();
+        const filtered = cardNo ? cards.filter((c) => c.cardNo === cardNo) : cards;
+        return ok(res, { cards: filtered });
+      }
+        const body = await readBody(req);
+        const playerName = String(body.playerName || '').trim();
+        if (!playerName) return fail(res, 400, '缺少乘客姓名');
+        if (blacklistHit(db, 'metro', playerName, String(body.idNo || ''))) return fail(res, 403, '该乘客已被地铁黑名单拦截');
+        if (method === 'POST' && !body.cardNo) {
+          const cardNo = `MC${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+          const card = {
+            id: `card_${crypto.randomBytes(6).toString('hex')}`,
+            cardNo,
+            playerName,
+            balance: 0,
+            deposit: metroSettings(db).deposit,
+            createdAt: new Date().toISOString(),
+            lastUsedAt: '',
+          };
+          db.metroCards.push(card);
+          saveDB();
+          return ok(res, { card }, '储值卡已创建');
+        }
+        if (method === 'POST' && body.action === 'recharge') {
+          const card = (db.metroCards || []).find((c) => c.cardNo === String(body.cardNo || ''));
+          if (!card) return fail(res, 404, '储值卡不存在');
+          const amount = Math.max(0, Number(body.amount || 0));
+          if (!Number.isFinite(amount) || amount <= 0) return fail(res, 400, '充值金额无效');
+          card.balance = Number((Number(card.balance) + amount).toFixed(2));
+          card.lastUsedAt = new Date().toISOString();
+          saveDB();
+          return ok(res, { card }, '充值成功');
+        }
+        return fail(res, 405, '不支持的储值卡操作');
+      }
+
+      if (third === 'tickets') {
+        if (method === 'GET') return ok(res, { tickets: db.metroTickets || [] });
+        const body = await readBody(req);
+        const from = railwayStationByName(db, String(body.from || ''));
+        const to = railwayStationByName(db, String(body.to || ''));
+        const playerName = String(body.playerName || '').trim();
+        if (!from || !to || !playerName) return fail(res, 400, '缺少乘客或起终站');
+        if (blacklistHit(db, 'metro', playerName, String(body.idNo || ''))) return fail(res, 403, '该乘客已被地铁黑名单拦截');
+        const fare = metroFare(db, from, to);
+        const ticket = {
+          id: `mt_${crypto.randomBytes(6).toString('hex')}`,
+          ticketNo: `MT${Date.now().toString(36).toUpperCase()}${crypto.randomBytes(3).toString('hex').toUpperCase()}`,
+          playerName,
+          fromStation: from.name,
+          toStation: to.name,
+          fare,
+          status: 'sold',
+          issuedAt: new Date().toISOString(),
+          usedAt: '',
+        };
+        db.metroTickets.push(ticket);
+        saveDB();
+        return ok(res, { ticket }, '单程票已售出');
+      }
+    }
+
     /* 车站（带模组坐标） */
     if (second === 'stations' && method === 'GET' && !third) {
       return ok(
@@ -2085,9 +2378,15 @@ async function route(req, res, pathname, query) {
         });
         trains.sort((a, b) => String(a.departTime).localeCompare(String(b.departTime)));
       }
+      const metroCfg = metroSettings(db);
+      const metroStation = metroCfg.enabled && station
+        && (db.trains || []).some((train) => metroTrainStops(train).some((stop) =>
+          stop.stationId === station.id || stop.stationName === station.name));
       return ok(res, {
         ...brand,
         today,
+        metroEnabled: metroCfg.enabled,
+        metroStation,
         childDiscount: (db.settings || {}).childDiscount === undefined ? 0.5 : Number(db.settings.childDiscount),
         studentDiscount: (db.settings || {}).studentDiscount === undefined ? 0.75 : Number(db.settings.studentDiscount),
         maxPassengersPerOrder: Math.max(1, Math.min(20, Number((db.settings || {}).maxPassengersPerOrder) || 5)),
@@ -2891,6 +3190,45 @@ async function route(req, res, pathname, query) {
         return fail(res, 405, '不支持的请求方法');
       }
 
+      /* Create / CRN / Simurail 兼容桥状态与手动同步 */
+      if (third === 'compat') {
+        if (method === 'GET') {
+          return ok(res, compatStatus(db));
+        }
+        if (method === 'POST' && fourth === 'pull') {
+          const source = String(query.source || 'crn').toLowerCase();
+          try {
+            if (source === 'crn') return ok(res, await compatPullCrn(db), 'CRN 数据已拉取');
+            if (source === 'simurail') return ok(res, await compatPullSimurail(db), 'Simurail 数据已拉取');
+            if (source === 'create') {
+              compatStore(db).create = {
+                lastSyncAt: new Date().toISOString(),
+                note: 'Create 调度时刻表通过模组本地事件桥接；Web 侧保留车次/车站映射表。',
+              };
+              saveDB();
+              return ok(res, compatStore(db).create, 'Create 兼容桥已标记（本地事件桥待接入）');
+            }
+            return fail(res, 400, '兼容源仅支持 create、crn、simurail');
+          } catch (error) {
+            const bucket = ['crn', 'simurail'].includes(source) ? source : 'crn';
+            const record = compatStore(db)[bucket];
+            record.lastError = String(error && error.message || error);
+            saveDB();
+            return fail(res, 502, `兼容桥拉取失败：${record.lastError}`);
+          }
+        }
+        if (method === 'POST' && fourth === 'push') {
+          const payload = compatPushPayload(db);
+          compatStore(db).create.lastPush = payload;
+          compatStore(db).crn.lastPush = payload;
+          compatStore(db).simurail.lastPush = payload;
+          saveDB();
+          return ok(res, { pushedAt: payload.pushedAt, stations: payload.stations.length, trains: payload.trains.length },
+            '12306 车次/车站快照已写入兼容桥；外部模组订阅后可读取');
+        }
+        return fail(res, 405, '不支持的请求方法');
+      }
+
       /* 售票机 / 购票机后台台账 */
       if (third === 'tvms') {
         if (method === 'GET') {
@@ -2943,6 +3281,13 @@ async function route(req, res, pathname, query) {
           return ok(res, null, '购票机已删除');
         }
         return fail(res, 405, '不支持的请求方法');
+      }
+      /* 模组可读的检票机台账：返回设备编号、类型、状态与远程配置 */
+      if (third === 'devices' && method === 'GET') {
+        return ok(res, decoratedDevices(db).map((device) => {
+          const station = findStation(db, device.stationId);
+          return { ...device, stationName: station ? station.name : '' };
+        }));
       }
       /* Create 时刻表批量导入：JSON 按车次携带完整经停序列 */
       if (third === 'timetable' && fourth === 'import' && method === 'POST') {
@@ -3599,6 +3944,21 @@ async function route(req, res, pathname, query) {
       }
       if (body.gateScreenEnabled !== undefined) next.gateScreenEnabled = Boolean(body.gateScreenEnabled);
       if (body.metroEnabled !== undefined) next.metroEnabled = Boolean(body.metroEnabled);
+      if (body.metroBaseFare !== undefined) {
+        const v = Number(body.metroBaseFare);
+        if (!Number.isFinite(v) || v < 1 || v > 999) return fail(res, 400, '地铁起步价需在 1~999 之间');
+        next.metroBaseFare = v;
+      }
+      if (body.metroFarePerStop !== undefined) {
+        const v = Number(body.metroFarePerStop);
+        if (!Number.isFinite(v) || v < 0 || v > 999) return fail(res, 400, '地铁每站加价需在 0~999 之间');
+        next.metroFarePerStop = v;
+      }
+      if (body.metroCardDeposit !== undefined) {
+        const v = Number(body.metroCardDeposit);
+        if (!Number.isFinite(v) || v < 0 || v > 999) return fail(res, 400, '储值卡押金需在 0~999 之间');
+        next.metroCardDeposit = v;
+      }
       if (body.versionStage !== undefined) {
         const v = String(body.versionStage).trim().slice(0, 16);
         next.versionStage = v || 'BETA';
@@ -3686,6 +4046,22 @@ async function route(req, res, pathname, query) {
         const v = Number(body.ticketQrRefreshSeconds);
         if (!Number.isInteger(v) || v < 10 || v > 180) return fail(res, 400, '二维码刷新间隔需为 10~180 秒');
         next.ticketQrRefreshSeconds = v;
+      }
+      if (body.createCompatEnabled !== undefined) next.createCompatEnabled = Boolean(body.createCompatEnabled);
+      if (body.compatPullIntervalSeconds !== undefined) {
+        const v = Number(body.compatPullIntervalSeconds);
+        if (!Number.isInteger(v) || v < 10 || v > 3600) return fail(res, 400, '兼容桥刷新间隔需为 10~3600 秒');
+        next.compatPullIntervalSeconds = v;
+      }
+      if (body.crnApiBase !== undefined) {
+        const v = String(body.crnApiBase || '').trim();
+        if (v && !/^https?:\/\/[^\s]{1,200}$/.test(v)) return fail(res, 400, 'CRN 接口地址需为 http/https 地址');
+        next.crnApiBase = v;
+      }
+      if (body.simurailApiBase !== undefined) {
+        const v = String(body.simurailApiBase || '').trim();
+        if (v && !/^https?:\/\/[^\s]{1,200}$/.test(v)) return fail(res, 400, 'Simurail 接口地址需为 http/https 地址');
+        next.simurailApiBase = v;
       }
       db.settings = next;
       railwayRecalcAutoFares(db);

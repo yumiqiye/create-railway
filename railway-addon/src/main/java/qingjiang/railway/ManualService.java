@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 人工终端（电脑/POS/人工检票机）的业务逻辑。 */
+/** 人工终端（电脑/人工检票机）的业务逻辑。 */
 public final class ManualService {
     private ManualService() {}
 
@@ -140,13 +140,16 @@ public final class ManualService {
                 gateType = RailwayStore.gate(staff.level(), blockHit.getBlockPos(), state).type;
             }
         }
-        if (gateType == RailwayStore.GATE_ENTRY || mode == 0) {
-            TicketNbt.markEntry(ticket, station);
-            OrderGateSync.markEntered(ticket, target.getGameProfile().getName(), "manual-entry");
-        } else if (gateType == RailwayStore.GATE_CHECK || mode == 2) {
-            TicketNbt.markCheckin(ticket);
-            OrderGateSync.markEntered(ticket, target.getGameProfile().getName(), "manual-check");
-        }
+        int effectiveType = gateType != -1 ? gateType : (mode == 2 ? RailwayStore.GATE_CHECK : RailwayStore.GATE_ENTRY);
+        GateLogic.Result gateResult = GateLogic.validate(ticket, effectiveType, false, station);
+        if (!gateResult.allowed()) return new Result(false, gateResult.message());
+        String syncMode = switch (effectiveType) {
+            case RailwayStore.GATE_CHECK -> "manual-check";
+            case RailwayStore.GATE_EXIT -> "manual-exit";
+            default -> "manual-entry";
+        };
+        GateLogic.pass(ticket, effectiveType, station);
+        OrderGateSync.markEntered(ticket, target.getGameProfile().getName(), syncMode);
         boolean gate = false;
         if (hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) {
             gate = CrhCompat.openGate(staff.level(), blockHit.getBlockPos());
@@ -179,6 +182,7 @@ public final class ManualService {
     private static ItemStack findTicket(ServerPlayer player, String orderNo) {
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             ItemStack stack = player.getInventory().getItem(i);
+            if (CrhCompat.isVoucher(stack) || TicketNbt.isItinerary(stack)) continue;
             if (TicketNbt.hasTicket(stack) && orderNo.equals(TicketNbt.orderNumber(stack))) {
                 if (TicketNbt.isIdCard(stack)) return stack;
                 return stack;

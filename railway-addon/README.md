@@ -1,9 +1,9 @@
-# Hexie Railway Addon
+# 机械动力:铁路增强（Create Railway Plus）
 
-CRH（`hexie`）的独立铁路票务附属，NeoForge 1.21.1。
+Create 铁路增强附属，NeoForge 1.21.1；售票机、两类闸机和票卡物品均为本模组自带注册。
 
-- 不修改 CRH 源码，按方块/物品注册名联动。
-- 身份证、报销凭证、兜底车票、`/railway` 命令、售票机 MCEF 网页、闸机规则、车站扫描与后台同步。
+- 不再依赖 HeXie / CRH 模组；Create / CRN / Simurail 仅保留可选兼容探测。
+- 身份证、报销凭证、车票、`/railway` 命令、售票机 MCEF 网页、闸机规则、车站扫描与后台同步。
 - 完整安装、后台、接口说明见上一级 `README-铁路票务附属.md`。
 
 构建：

@@ -1,0 +1,20 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "railway_plus:block/ticket_vendor",
+      "y": 0
+    },
+    "facing=east": {
+      "model": "railway_plus:block/ticket_vendor",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "railway_plus:block/ticket_vendor",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "railway_plus:block/ticket_vendor",
+      "y": 270
+    }
+  }
+}

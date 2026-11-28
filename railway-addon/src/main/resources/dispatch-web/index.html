@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机械动力：铁路增强 · 调度台</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">
+    <div class="titles">
+      <h1>机械动力：铁路增强 · 调度台</h1>
+      <div class="sub"><span id="createVer" class="chip">Create 检测中…</span></div>
+    </div>
+  </div>
+  <div class="statusline">
+    <span id="conn" class="conn"><i></i><b id="connText">连接中</b></span>
+    <span class="sep"></span>
+    <span id="clock" class="mono">--:--:--</span>
+    <span class="sep"></span>
+    <span id="tps" class="mono">TPS --</span>
+    <button id="themeBtn" class="ghost" title="切换深色 / 浅色">☾ 深色</button>
+  </div>
+</header>
+
+<main>
+  <section class="mapwrap">
+    <div class="maptoolbar">
+      <label class="field">维度
+        <select id="dimSelect"></select>
+      </label>
+      <button class="ghost" id="fitBtn" title="自动缩放到全网">⤢ 全网</button>
+      <span class="mapstats mono" id="mapStats">线路 --</span>
+      <span class="flex"></span>
+      <span class="hint">滚轮缩放 · 拖动平移 · 点击信号机</span>
+    </div>
+    <div class="canvasbox">
+      <canvas id="map"></canvas>
+      <div id="tip" class="tip hidden"></div>
+      <div class="legend">
+        <span><i class="lg line"></i>线路</span>
+        <span><i class="lg st"></i>车站</span>
+        <span><i class="lg sig red"></i>红灯</span>
+        <span><i class="lg sig green"></i>绿灯</span>
+        <span><i class="lg tr"></i>列车</span>
+      </div>
+      <div id="sweep" class="sweep"></div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <nav class="tabs" id="tabs">
+      <button data-tab="trains" class="active">列车 <b id="nTrains">0</b></button>
+      <button data-tab="signals">信号机 <b id="nSignals">0</b></button>
+      <button data-tab="timetable">时刻表</button>
+      <button data-tab="config">设置</button>
+      <button data-tab="logs">日志</button>
+    </nav>
+    <div class="panels">
+      <div class="panel active" id="panel-trains"></div>
+      <div class="panel" id="panel-signals"></div>
+      <div class="panel" id="panel-timetable"></div>
+      <div class="panel" id="panel-config"></div>
+      <div class="panel" id="panel-logs"></div>
+    </div>
+  </aside>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

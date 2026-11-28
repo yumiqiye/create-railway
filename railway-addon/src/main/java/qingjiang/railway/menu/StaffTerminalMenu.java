@@ -6,7 +6,7 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
 
-/** 人工终端：电脑方块、手持 POS、人工检票机共用；mode 0=电脑 1=POS 2=检票。 */
+/** 人工终端：电脑方块、人工检票机共用；mode 0=电脑 2=检票。 */
 public class StaffTerminalMenu extends AbstractContainerMenu {
     private final int mode;
 
@@ -16,7 +16,6 @@ public class StaffTerminalMenu extends AbstractContainerMenu {
     }
 
     private static MenuType<?> typeFor(int mode) {
-        if (mode == 1) return qingjiang.railway.ModMenus.STAFF_POS.get();
         if (mode == 2) return qingjiang.railway.ModMenus.STAFF_CHECK.get();
         return qingjiang.railway.ModMenus.STAFF_COMPUTER.get();
     }

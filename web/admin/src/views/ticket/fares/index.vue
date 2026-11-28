@@ -23,7 +23,7 @@
         :bordered="false"
         size="small"
       />
-      <p class="hint">闸机与售票机由模组扫描车站范围自动登记；闸机类型与停用状态请在游戏内用 CRH 刷子修改。</p>
+      <p class="hint">闸机与售票机由模组扫描车站范围自动登记；OP 玩家在游戏内空手右键闸机切换类型，潜行右键切换停用/启用。</p>
     </n-card>
 
     <n-card :bordered="false" class="mt-4" title="票价列表">

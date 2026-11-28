@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "railway_plus:block/tv" },
+    "facing=east": { "model": "railway_plus:block/tv", "y": 90 },
+    "facing=south": { "model": "railway_plus:block/tv", "y": 180 },
+    "facing=west": { "model": "railway_plus:block/tv", "y": 270 }
+  }
+}

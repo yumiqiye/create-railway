@@ -1,0 +1,19 @@
+{
+  "item.railway_plus.id_card": "Resident ID Card",
+  "item.railway_plus.reimbursement": "Reimbursement Receipt",
+  "item.railway_plus.railway_ticket": "Railway e-Ticket",
+  "item.railway_plus.manual_checker": "Manual Ticket Checker",
+  "item.railway_plus.tablet": "Handheld Tablet",
+  "item.railway_plus.admin_card": "Admin Gate Card",
+  "item.railway_plus.metro_ticket": "Metro Single Ticket",
+  "item.railway_plus.metro_card": "Metro Stored-Value Card",
+  "block.railway_plus.ticket_vendor": "Railway Ticket Vendor",
+  "block.railway_plus.gate_a": "Gate",
+  "block.railway_plus.gate_b": "National Rail Gate",
+  "block.railway_plus.computer": "Railway Computer",
+  "block.railway_plus.guide_screen": "Station Guide Screen",
+  "block.railway_plus.tv": "Wall TV",
+  "block.railway_plus.vehicle_display": "Vehicle Destination Display",
+  "block.railway_plus.dispatch_screen": "Onboard Dispatch Screen",
+  "itemGroup.railway_plus.railway": "Create: Railway Plus"
+}
